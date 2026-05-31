@@ -567,8 +567,10 @@ function updateCamera(deltaSeconds: number): void {
 }
 
 function updateSpeedEffects(): void {
-  camera.fov = speedEffects.cameraFov;
-  camera.updateProjectionMatrix();
+  if (camera.fov !== speedEffects.cameraFov) {
+    camera.fov = speedEffects.cameraFov;
+    camera.updateProjectionMatrix();
+  }
   hud.speedVignette.style.opacity = speedEffects.vignetteOpacity.toFixed(3);
   trackArt.speedStreaks.forEach((streak, index) => {
     streak.visible = speedEffects.intensity > 0.12;
@@ -578,6 +580,8 @@ function updateSpeedEffects(): void {
 
 function animateTrackArt(deltaSeconds: number): void {
   const pulse = 1 + Math.sin(elapsedSeconds * 8) * 0.045 * speedEffects.roadPulse;
+  const headingSin = Math.sin(vehicle.heading);
+  const headingCos = Math.cos(vehicle.heading);
   trackArt.crowdPanels.forEach((panel, index) => {
     panel.scale.y = 1 + Math.sin(elapsedSeconds * 4.2 + index) * 0.08;
   });
@@ -588,12 +592,12 @@ function animateTrackArt(deltaSeconds: number): void {
     const side = index % 2 === 0 ? -1 : 1;
     const laneOffset = 6.8 + (index % 3) * 2.6;
     const travel = ((elapsedSeconds * (36 + index * 2) + index * 5.4) % 42) - 21;
-    const forward = new THREE.Vector3(Math.sin(vehicle.heading), 0, Math.cos(vehicle.heading));
-    const sideOffset = perpendicularOffset(vehicle.heading, laneOffset * side);
+    const scaledTravel = travel * speedEffects.intensity;
+    const sideDistance = laneOffset * side;
     streak.position.set(
-      vehicle.position.x + sideOffset.x + forward.x * travel * speedEffects.intensity,
+      vehicle.position.x + headingCos * sideDistance + headingSin * scaledTravel,
       0.35 + (index % 2) * 0.08,
-      vehicle.position.z + sideOffset.z + forward.z * travel * speedEffects.intensity,
+      vehicle.position.z - headingSin * sideDistance + headingCos * scaledTravel,
     );
     streak.rotation.y = vehicle.heading;
     streak.scale.z = 1 + deltaSeconds * speedEffects.intensity * 2.4;

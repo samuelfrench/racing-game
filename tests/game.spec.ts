@@ -66,10 +66,10 @@ for (const viewport of viewports) {
       .poll(() => countCanvasSampleColors(page), { message: 'canvas has varied rendered pixels' })
       .toBeGreaterThan(4);
     const initialDebug = await readDebug(page);
-    expect(initialDebug.trackArt.chevrons).toBeGreaterThanOrEqual(12);
-    expect(initialDebug.trackArt.crowdPanels).toBeGreaterThanOrEqual(4);
-    expect(initialDebug.trackArt.lightMasts).toBeGreaterThanOrEqual(8);
-    expect(initialDebug.trackArt.speedStreaks).toBeGreaterThanOrEqual(10);
+    expect(initialDebug.trackArt.chevrons).toBeGreaterThanOrEqual(14);
+    expect(initialDebug.trackArt.crowdPanels).toBeGreaterThanOrEqual(6);
+    expect(initialDebug.trackArt.lightMasts).toBeGreaterThanOrEqual(10);
+    expect(initialDebug.trackArt.speedStreaks).toBeGreaterThanOrEqual(12);
     const before = await readDebug(page);
 
     await page.locator('#start-button').click();
