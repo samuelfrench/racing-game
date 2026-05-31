@@ -47,7 +47,7 @@ button {
   inset: 18px 18px auto;
   z-index: 3;
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 160px minmax(150px, 0.7fr);
+  grid-template-columns: minmax(180px, 1fr) 160px 126px minmax(150px, 0.7fr);
   gap: 12px;
   pointer-events: none;
 }
@@ -106,6 +106,25 @@ button {
   align-content: center;
 }
 
+.race-state-card {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  border-color: rgb(255 230 107 / 50%);
+  background: linear-gradient(135deg, rgb(12 13 15 / 82%), rgb(71 43 22 / 58%));
+}
+
+#race-status {
+  color: #ffe66b;
+  font-family: "Bahnschrift", "Aptos Display", sans-serif;
+  font-size: clamp(1.7rem, 4vw, 3.5rem);
+  font-weight: 900;
+  line-height: 0.9;
+  text-align: center;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+
 #speed {
   font-family: "Bahnschrift", "Aptos Display", sans-serif;
   font-size: clamp(2.8rem, 6vw, 4.8rem);
@@ -126,6 +145,68 @@ button {
   font-size: 1.08rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.results-panel {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 3;
+  width: min(340px, calc(100vw - 36px));
+  padding: 14px 16px 16px;
+  border: 1px solid rgb(255 230 107 / 44%);
+  border-radius: 8px;
+  background: linear-gradient(145deg, rgb(8 11 15 / 88%), rgb(34 28 20 / 78%));
+  box-shadow: 0 20px 55px rgb(0 0 0 / 34%);
+  backdrop-filter: blur(16px);
+  pointer-events: none;
+}
+
+.results-panel.hidden {
+  display: none;
+}
+
+.results-panel h2 {
+  margin: 2px 0 10px;
+  color: #fff7cc;
+  font-size: 1.35rem;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+#results-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#results-list li {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 68px;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  border-top: 1px solid rgb(255 255 255 / 12%);
+  color: #d8e8ef;
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+#results-list li:first-child {
+  color: #ffe66b;
+}
+
+#results-list strong {
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#results-list span:last-child {
+  justify-self: end;
 }
 
 #start-panel {
@@ -173,9 +254,10 @@ button {
 @media (max-width: 720px) {
   #hud {
     inset: 10px 10px auto;
-    grid-template-columns: 1fr 100px;
+    grid-template-columns: minmax(0, 1fr) 100px;
   }
 
+  .race-state-card,
   .split-card {
     grid-column: 1 / -1;
     min-height: 62px;
@@ -184,6 +266,17 @@ button {
   .hud-cluster {
     min-height: 70px;
     padding: 10px 12px;
+  }
+
+  .results-panel {
+    right: 10px;
+    bottom: 10px;
+    width: calc(100vw - 20px);
+    padding: 12px;
+  }
+
+  #results-list li {
+    grid-template-columns: 30px minmax(0, 1fr) 62px;
   }
 
 }

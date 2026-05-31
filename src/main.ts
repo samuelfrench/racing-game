@@ -2,6 +2,17 @@ import * as THREE from 'three';
 import './styles.css';
 import { resolveInputFromKeys, type ControlInput } from './game/input';
 import { createRaceProgress, updateRaceProgress, type RaceProgress } from './game/race';
+import {
+  createRaceSession,
+  finishRace,
+  requestRaceStart,
+  resetRaceSession,
+  stepRaceSession,
+  type RacePhase,
+  type RaceResult,
+  type RaceSession,
+} from './game/race-session';
+import { createOpponentGrid, getOpponentResults, stepOpponents, type OpponentState } from './game/opponents';
 import { createDefaultTrack, sampleTrackSurface, type TrackDefinition, type TrackPoint } from './game/track';
 import { createInitialVehicleState, stepVehicle, type VehicleState } from './game/vehicle';
 
@@ -11,18 +22,33 @@ type HudElements = {
   speed: HTMLElement;
   checkpoint: HTMLElement;
   bestLap: HTMLElement;
+  raceStatus: HTMLElement;
+  resultsPanel: HTMLElement;
+  resultsList: HTMLOListElement;
   startPanel: HTMLElement;
   startButton: HTMLButtonElement;
 };
 
 type DebugState = {
   running: boolean;
+  phase: RacePhase;
+  countdownSeconds: number;
   frame: number;
   speed: number;
   lap: number;
   checkpoint: string;
   carX: number;
   carZ: number;
+  opponents: readonly DebugOpponent[];
+  results: readonly RaceResult[];
+};
+
+type DebugOpponent = {
+  readonly id: string;
+  readonly x: number;
+  readonly z: number;
+  readonly lap: number;
+  readonly finishedAtSeconds: number | null;
 };
 
 declare global {
@@ -38,6 +64,9 @@ const hud = {
   speed: mustGet('speed'),
   checkpoint: mustGet('checkpoint'),
   bestLap: mustGet('best-lap'),
+  raceStatus: mustGet('race-status'),
+  resultsPanel: mustGet('results-panel'),
+  resultsList: mustGet<HTMLOListElement>('results-list'),
   startPanel: mustGet('start-panel'),
   startButton: mustGet<HTMLButtonElement>('start-button'),
 } satisfies HudElements;
@@ -63,15 +92,24 @@ const checkpointMeshes = new Map<string, THREE.Object3D>();
 const startPose = getStartPose(track);
 let vehicle = createVehicleAtStart();
 let progress = createRaceProgress(track.checkpoints, 3);
+let session: RaceSession = createRaceSession();
+let opponents: readonly OpponentState[] = createOpponentGrid(track, progress.totalLaps);
 let running = false;
 let elapsedSeconds = 0;
 let frame = 0;
 let lastFrameTimestamp = performance.now();
+let renderedResultsKey = '';
 
 const world = buildWorld(track);
 scene.add(world);
 const car = buildCar();
 scene.add(car);
+const opponentMeshes = opponents.map((opponent) => {
+  const opponentCar = buildCar(opponent.color);
+  opponentCar.scale.setScalar(0.92);
+  scene.add(opponentCar);
+  return opponentCar;
+});
 const followTarget = new THREE.Vector3();
 const cameraTarget = new THREE.Vector3();
 const cameraPosition = new THREE.Vector3(startPose.x, 38, startPose.z - 58);
@@ -88,7 +126,11 @@ function loop(timestamp = performance.now()): void {
   lastFrameTimestamp = timestamp;
   frame += 1;
 
-  if (running) {
+  if (session.phase === 'countdown') {
+    session = stepRaceSession(session, deltaSeconds);
+  }
+
+  if (session.phase === 'racing') {
     elapsedSeconds += deltaSeconds;
     const surface = sampleTrackSurface(track, vehicle.position.x, vehicle.position.z);
     vehicle = stepVehicle(vehicle, {
@@ -97,12 +139,26 @@ function loop(timestamp = performance.now()): void {
       trackGrip: surface.grip,
     });
     progress = updateRaceProgress(progress, track.checkpoints, vehicle.position, elapsedSeconds);
+    opponents = stepOpponents(opponents, track, deltaSeconds, true, elapsedSeconds);
+
+    if (progress.finished) {
+      const playerResult: RaceResult = {
+        id: 'player',
+        name: 'You',
+        finishSeconds: elapsedSeconds,
+      };
+      opponents = finishRemainingOpponents(opponents, elapsedSeconds);
+      session = finishRace(session, [playerResult, ...getOpponentResults(opponents)]);
+      running = false;
+    }
   }
 
   updateCarMesh(car, vehicle);
+  updateOpponentMeshes();
   updateCheckpoints(progress);
   updateCamera(deltaSeconds);
   updateHud(progress, vehicle);
+  updateResultsBoard();
   window.__racingGameDebug = createDebugState();
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
@@ -250,9 +306,9 @@ function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinitio
   }
 }
 
-function buildCar(): THREE.Group {
+function buildCar(bodyColor: THREE.ColorRepresentation = 0xff335f): THREE.Group {
   const group = new THREE.Group();
-  const bodyMaterial = new THREE.MeshBasicMaterial({ color: 0xff335f });
+  const bodyMaterial = new THREE.MeshBasicMaterial({ color: bodyColor });
   const cockpitMaterial = new THREE.MeshBasicMaterial({
     color: 0x132d36,
   });
@@ -307,6 +363,18 @@ function updateCarMesh(carMesh: THREE.Group, state: VehicleState): void {
   carMesh.rotation.set(0, state.heading, -state.lateralVelocity * 0.016);
 }
 
+function updateOpponentMeshes(): void {
+  opponents.forEach((opponent, index) => {
+    const opponentMesh = opponentMeshes[index];
+    if (!opponentMesh) {
+      return;
+    }
+    const laneOffset = getOpponentLaneOffset(index, opponent.heading);
+    opponentMesh.position.set(opponent.position.x + laneOffset.x, 0.1, opponent.position.z + laneOffset.z);
+    opponentMesh.rotation.set(0, opponent.heading, 0);
+  });
+}
+
 function updateCheckpoints(raceProgress: RaceProgress): void {
   const nextCheckpoint = track.checkpoints[raceProgress.nextCheckpointIndex]?.id;
   for (const checkpoint of track.checkpoints) {
@@ -338,6 +406,7 @@ function updateHud(raceProgress: RaceProgress, state: VehicleState): void {
   hud.speed.textContent = Math.max(0, Math.round(Math.abs(state.speed) * 2.237)).toString().padStart(3, '0');
   hud.checkpoint.textContent = next ? next.id.toUpperCase() : 'FINISH';
   hud.bestLap.textContent = raceProgress.bestLapSeconds === null ? '--' : formatSeconds(raceProgress.bestLapSeconds);
+  hud.raceStatus.textContent = getRaceStatusText(session);
   hud.boostMeter.style.transform = `scaleX(${state.boostFuel.toFixed(3)})`;
 }
 
@@ -356,8 +425,12 @@ function setupInput(): void {
 
 function setupStartButton(): void {
   hud.startButton.addEventListener('click', () => {
-    running = true;
-    hud.startPanel.classList.add('hidden');
+    const nextSession = requestRaceStart(session);
+    if (nextSession.phase !== session.phase) {
+      session = nextSession;
+      running = true;
+      hud.startPanel.classList.add('hidden');
+    }
   });
 }
 
@@ -366,11 +439,86 @@ function readInput(): ControlInput {
 }
 
 function resetRace(): void {
+  keys.clear();
   vehicle = createVehicleAtStart();
   progress = createRaceProgress(track.checkpoints, 3);
+  session = resetRaceSession(session);
+  opponents = createOpponentGrid(track, progress.totalLaps);
   elapsedSeconds = 0;
-  running = true;
-  hud.startPanel.classList.add('hidden');
+  running = false;
+  hud.startPanel.classList.remove('hidden');
+  updateResultsBoard();
+}
+
+function finishRemainingOpponents(currentOpponents: readonly OpponentState[], raceElapsedSeconds: number): readonly OpponentState[] {
+  let simulatedOpponents = currentOpponents;
+  let simulatedElapsedSeconds = raceElapsedSeconds;
+  const simulationDeltaSeconds = 0.1;
+  const maxSimulationSteps = 1600;
+
+  for (let step = 0; step < maxSimulationSteps; step += 1) {
+    if (simulatedOpponents.every((opponent) => opponent.finishedAtSeconds !== null)) {
+      return simulatedOpponents;
+    }
+    simulatedElapsedSeconds += simulationDeltaSeconds;
+    simulatedOpponents = stepOpponents(
+      simulatedOpponents,
+      track,
+      simulationDeltaSeconds,
+      true,
+      simulatedElapsedSeconds,
+    );
+  }
+
+  return simulatedOpponents;
+}
+
+function updateResultsBoard(): void {
+  if (session.phase !== 'finished' || session.results.length === 0) {
+    hud.resultsPanel.classList.add('hidden');
+    hud.resultsPanel.hidden = true;
+    if (renderedResultsKey !== '') {
+      hud.resultsList.replaceChildren();
+      renderedResultsKey = '';
+    }
+    return;
+  }
+
+  const resultsKey = session.results.map((result) => `${result.id}:${result.finishSeconds.toFixed(3)}`).join('|');
+  if (resultsKey === renderedResultsKey) {
+    return;
+  }
+
+  const items = session.results.map((result, index) => {
+    const item = document.createElement('li');
+    const position = document.createElement('span');
+    const name = document.createElement('strong');
+    const time = document.createElement('span');
+
+    position.textContent = String(index + 1).padStart(2, '0');
+    name.textContent = result.name;
+    time.textContent = formatSeconds(result.finishSeconds);
+    item.append(position, name, time);
+    return item;
+  });
+
+  hud.resultsList.replaceChildren(...items);
+  hud.resultsPanel.hidden = false;
+  hud.resultsPanel.classList.remove('hidden');
+  renderedResultsKey = resultsKey;
+}
+
+function getRaceStatusText(currentSession: RaceSession): string {
+  if (currentSession.phase === 'idle') {
+    return 'READY';
+  }
+  if (currentSession.phase === 'countdown') {
+    return String(Math.max(1, Math.ceil(currentSession.countdownSeconds)));
+  }
+  if (currentSession.phase === 'racing') {
+    return 'GO';
+  }
+  return 'FINISH';
 }
 
 function createVehicleAtStart(): VehicleState {
@@ -451,6 +599,11 @@ function perpendicularOffset(heading: number, distance: number): TrackPoint {
   };
 }
 
+function getOpponentLaneOffset(index: number, heading: number): TrackPoint {
+  const laneOffsets = [-6.2, 6.2, -2.2] as const;
+  return perpendicularOffset(heading, laneOffsets[index % laneOffsets.length]);
+}
+
 function resize(): void {
   const width = window.innerWidth;
   const height = window.innerHeight;
@@ -464,12 +617,22 @@ function createDebugState(): DebugState {
   const next = track.checkpoints[progress.nextCheckpointIndex];
   return {
     running,
+    phase: session.phase,
+    countdownSeconds: session.countdownSeconds,
     frame,
     speed: vehicle.speed,
     lap: progress.currentLap,
     checkpoint: next?.id ?? 'finish',
     carX: vehicle.position.x,
     carZ: vehicle.position.z,
+    opponents: opponents.map((opponent) => ({
+      id: opponent.id,
+      x: opponent.position.x,
+      z: opponent.position.z,
+      lap: opponent.lap,
+      finishedAtSeconds: opponent.finishedAtSeconds,
+    })),
+    results: session.results.map((result) => ({ ...result })),
   };
 }
 

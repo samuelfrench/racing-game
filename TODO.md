@@ -6,7 +6,6 @@
 
 ## Next Improvements
 
-- [ ] Add richer race structure: opponents, race countdown, finish state, and results board.
 - [ ] Improve track art with roadside objects, signage, animated crowds, and stronger sense of speed.
 - [ ] Add audio with engine pitch, tire skid, boost, checkpoint, and lap cues.
 - [ ] Add settings for graphics quality, camera mode, controls, and accessibility.
@@ -15,3 +14,4 @@
 ## Completed
 
 - [x] Initial Vite/TypeScript/Three.js project scaffold.
+- [x] Add richer race structure: opponents, race countdown, finish state, and results board.

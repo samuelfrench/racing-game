@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="A polished Three.js arcade racing game with drifting, boost, checkpoints, and lap timing."
+      content="A polished Three.js arcade racing game with countdown starts, AI opponents, drifting, boost, checkpoints, and race results."
     />
     <title>Neon Harbor GP</title>
   </head>
@@ -23,11 +23,19 @@
           <span id="speed">000</span>
           <small>mph</small>
         </div>
+        <div class="hud-cluster race-state-card" aria-label="Race status">
+          <span id="race-status">READY</span>
+        </div>
         <div class="hud-cluster split-card">
           <p>Checkpoint</p>
           <strong id="checkpoint">START</strong>
           <p>Best <span id="best-lap">--</span></p>
         </div>
+      </section>
+      <section id="results-panel" class="results-panel hidden" aria-label="Race results" hidden>
+        <p class="eyebrow">Classified</p>
+        <h2>Results</h2>
+        <ol id="results-list"></ol>
       </section>
       <section id="start-panel" aria-label="Game start">
         <div>

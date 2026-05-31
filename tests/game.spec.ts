@@ -2,12 +2,26 @@ import { expect, test, type Page } from '@playwright/test';
 
 type DebugState = {
   running: boolean;
+  phase: 'idle' | 'countdown' | 'racing' | 'finished';
+  countdownSeconds: number;
   frame: number;
   speed: number;
   lap: number;
   checkpoint: string;
   carX: number;
   carZ: number;
+  opponents: readonly {
+    id: string;
+    x: number;
+    z: number;
+    lap: number;
+    finishedAtSeconds: number | null;
+  }[];
+  results: readonly {
+    id: string;
+    name: string;
+    finishSeconds: number;
+  }[];
 };
 
 const viewports = [
@@ -30,7 +44,9 @@ for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.goto('/');
     await expect(page.locator('#game-canvas')).toBeVisible();
+    await expect(page.locator('#race-status')).toBeVisible();
     await expect(page.locator('#start-button')).toBeVisible();
+    await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
     await expect.poll(() => readDebug(page).then((debug) => debug.frame)).toBeGreaterThan(3);
 
     await expect
@@ -39,12 +55,22 @@ for (const viewport of viewports) {
     const before = await readDebug(page);
 
     await page.locator('#start-button').click();
+    await expect.poll(() => readDebug(page).then((debug) => debug.phase)).toBe('countdown');
+
+    const countdownStart = await readDebug(page);
     await page.keyboard.down('ArrowUp');
     await page.keyboard.down('Shift');
+    await page.waitForTimeout(700);
+    const duringCountdown = await readDebug(page);
+    expect(Math.hypot(duringCountdown.carX - countdownStart.carX, duringCountdown.carZ - countdownStart.carZ)).toBeLessThan(0.75);
+    expect(duringCountdown.opponents).toHaveLength(3);
+
+    await expect.poll(() => readDebug(page).then((debug) => debug.phase), { timeout: 5_000 }).toBe('racing');
+    const racingStart = await readDebug(page);
     await expect
       .poll(async () => {
         const current = await readDebug(page);
-        return Math.hypot(current.carX - before.carX, current.carZ - before.carZ);
+        return Math.hypot(current.carX - racingStart.carX, current.carZ - racingStart.carZ);
       })
       .toBeGreaterThan(8);
     await expect.poll(() => readDebug(page).then((debug) => debug.speed)).toBeGreaterThan(10);
@@ -53,6 +79,7 @@ for (const viewport of viewports) {
 
     const after = await readDebug(page);
     expect(after.running).toBe(true);
+    expect(after.phase).toBe('racing');
     expect(after.speed).toBeGreaterThan(10);
     expect(Math.hypot(after.carX - before.carX, after.carZ - before.carZ)).toBeGreaterThan(8);
     expect(after.lap).toBe(1);
@@ -71,6 +98,10 @@ async function readDebug(page: Page): Promise<DebugState> {
     }
     return debug;
   });
+}
+
+async function hasDebugState(page: Page): Promise<boolean> {
+  return page.evaluate(() => Boolean(window.__racingGameDebug));
 }
 
 async function countCanvasSampleColors(page: Page): Promise<number> {
