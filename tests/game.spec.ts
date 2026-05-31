@@ -37,6 +37,7 @@ type DebugState = {
   settings: {
     graphicsQuality: 'high' | 'balanced' | 'low';
     cameraMode: 'chase' | 'far' | 'hood';
+    touchControlsMode: 'auto' | 'on' | 'off';
     masterVolume: number;
     muted: boolean;
     reducedMotion: boolean;
@@ -58,6 +59,18 @@ type DebugState = {
     fov: number;
   };
   controlHintsVisible: boolean;
+  touchControls: {
+    visible: boolean;
+    mode: 'auto' | 'on' | 'off';
+    activeActions: readonly string[];
+    input: {
+      throttle: number;
+      brake: number;
+      steer: number;
+      handbrake: boolean;
+      boost: boolean;
+    };
+  };
   opponents: readonly {
     id: string;
     x: number;
@@ -296,6 +309,150 @@ test('settings persist and affect race runtime debug state on desktop', async ({
   expect(consoleErrors).toEqual([]);
 });
 
+test('touch controls drive the race on mobile', async ({ page }) => {
+  const consoleErrors = collectConsoleErrors(page);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await expect(page.locator('#game-canvas')).toBeVisible();
+  await expect(page.locator('#touch-controls')).toBeVisible();
+  await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
+  await expect.poll(() => readDebug(page).then((debug) => debug.touchControls.visible)).toBe(true);
+  let debug = await readDebug(page);
+  expect(debug.settings.touchControlsMode).toBe('auto');
+  expect(debug.touchControls).toMatchObject({
+    visible: true,
+    mode: 'auto',
+    activeActions: [],
+    input: {
+      throttle: 0,
+      brake: 0,
+      steer: 0,
+      handbrake: false,
+      boost: false,
+    },
+  });
+
+  await page.locator('#start-button').click();
+  await expect(page.locator('#start-panel')).toHaveClass(/hidden/);
+  await expectTouchButtonsToBeTopHitTargets(page);
+  await expectElementsNotToOverlap(page, touchButtonSelectors, '#control-hints');
+  await expect.poll(() => readDebug(page).then((state) => state.phase)).toBe('countdown');
+  await holdTouchButton(page, '#touch-throttle', 21);
+  await expect.poll(() => readDebug(page).then((state) => state.touchControls.activeActions)).toContain('throttle');
+  await expect.poll(() => readDebug(page).then((state) => state.touchControls.input.throttle)).toBe(1);
+
+  await expect.poll(() => readDebug(page).then((state) => state.phase), { timeout: 5_000 }).toBe('racing');
+  const racingStart = await readDebug(page);
+  await expect
+    .poll(async () => {
+      const current = await readDebug(page);
+      return Math.hypot(current.carX - racingStart.carX, current.carZ - racingStart.carZ);
+    })
+    .toBeGreaterThan(8);
+  await expect.poll(() => readDebug(page).then((state) => state.speed)).toBeGreaterThan(10);
+
+  await holdTouchButton(page, '#touch-left', 22);
+  await holdTouchButton(page, '#touch-drift', 23);
+  await expect.poll(() => readDebug(page).then((state) => state.touchControls.activeActions)).toEqual(
+    expect.arrayContaining(['left', 'drift', 'throttle']),
+  );
+  await expect.poll(() => readDebug(page).then((state) => state.audio.skidGain), {
+    message: 'held touch drift and steer produce skid audio',
+  }).toBeGreaterThan(0);
+
+  await releaseTouchButton(page, '#touch-drift', 23);
+  await releaseTouchButton(page, '#touch-left', 22);
+  await releaseTouchButton(page, '#touch-throttle', 21);
+  await expect.poll(() => readDebug(page).then((state) => state.touchControls.activeActions)).toEqual([]);
+
+  debug = await readDebug(page);
+  expect(debug.phase).toBe('racing');
+  expect(debug.speed).toBeGreaterThan(10);
+  expect(consoleErrors).toEqual([]);
+});
+
+test('touch controls visibility follows auto and manual settings', async ({ page }) => {
+  const consoleErrors = collectConsoleErrors(page);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
+  await expect(page.locator('#touch-controls')).toBeHidden();
+  await expect.poll(() => readDebug(page).then((state) => state.touchControls.visible)).toBe(false);
+
+  await page.locator('#settings-button').click();
+  await page.locator('#touch-controls-mode').selectOption('on');
+  await expect(page.locator('#touch-controls')).toBeVisible();
+  await expect.poll(() => readDebug(page).then((state) => state.settings.touchControlsMode)).toBe('on');
+  await expect.poll(() => readDebug(page).then((state) => state.touchControls.visible)).toBe(true);
+
+  await page.locator('#touch-controls-mode').selectOption('off');
+  await expect(page.locator('#touch-controls')).toBeHidden();
+  await expect.poll(() => readDebug(page).then((state) => state.touchControls.visible)).toBe(false);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('#touch-controls')).toBeHidden();
+  await page.locator('#touch-controls-mode').selectOption('auto');
+  await expect(page.locator('#touch-controls')).toBeVisible();
+  await expect.poll(() => readDebug(page).then((state) => state.touchControls.visible)).toBe(true);
+  expect(consoleErrors).toEqual([]);
+});
+
+test('touch controls stay clear of mobile settings and results surfaces', async ({ page }) => {
+  const consoleErrors = collectConsoleErrors(page);
+
+  for (const viewportWidth of [320, 390, 720]) {
+    await page.setViewportSize({ width: viewportWidth, height: 844 });
+    await page.goto('/');
+    await expect.poll(() => hasDebugState(page), { message: `debug state is initialized at ${viewportWidth}px` }).toBe(true);
+    await expect(page.locator('#touch-controls')).toBeVisible();
+    await page.locator('#start-button').click();
+    await expect(page.locator('#start-panel')).toHaveClass(/hidden/);
+    await expectTouchButtonsToBeTopHitTargets(page);
+    await expectElementsNotToOverlap(page, touchButtonSelectors, '#settings-button');
+
+    await page.evaluate(() => {
+      const panel = document.querySelector<HTMLElement>('#results-panel');
+      if (!panel) {
+        throw new Error('Missing results panel');
+      }
+      panel.hidden = false;
+      panel.classList.remove('hidden');
+    });
+    await expectElementsNotToOverlap(page, touchButtonSelectors, '#results-panel');
+  }
+
+  expect(consoleErrors).toEqual([]);
+});
+
+test('touch controls clear a held action when pointer capture is unavailable and release happens outside button', async ({ page }) => {
+  const consoleErrors = collectConsoleErrors(page);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
+  await page.evaluate(() => {
+    for (const button of document.querySelectorAll<HTMLButtonElement>('[data-touch-action]')) {
+      button.setPointerCapture = () => {
+        throw new Error('capture unavailable');
+      };
+    }
+  });
+
+  await holdTouchButton(page, '#touch-throttle', 31);
+  await expect.poll(() => readDebug(page).then((state) => state.touchControls.activeActions)).toContain('throttle');
+  await page.locator('body').dispatchEvent('pointerup', {
+    pointerId: 31,
+    pointerType: 'touch',
+    isPrimary: true,
+    buttons: 0,
+    button: 0,
+  });
+  await expect.poll(() => readDebug(page).then((state) => state.touchControls.activeActions)).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
 test('settings use defaults and stay interactive when browser storage is blocked', async ({ page }) => {
   const consoleErrors: string[] = [];
   page.on('console', (message) => {
@@ -366,6 +523,96 @@ async function readDebug(page: Page): Promise<DebugState> {
 
 async function hasDebugState(page: Page): Promise<boolean> {
   return page.evaluate(() => Boolean(window.__racingGameDebug));
+}
+
+function collectConsoleErrors(page: Page): string[] {
+  const consoleErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      consoleErrors.push(message.text());
+    }
+  });
+  page.on('pageerror', (error) => {
+    consoleErrors.push(error.message);
+  });
+  return consoleErrors;
+}
+
+const touchButtonSelectors = [
+  '#touch-left',
+  '#touch-right',
+  '#touch-throttle',
+  '#touch-brake',
+  '#touch-drift',
+  '#touch-boost',
+] as const;
+
+async function holdTouchButton(page: Page, selector: string, pointerId: number): Promise<void> {
+  await page.locator(selector).dispatchEvent('pointerdown', {
+    pointerId,
+    pointerType: 'touch',
+    isPrimary: pointerId === 21,
+    buttons: 1,
+    button: 0,
+  });
+}
+
+async function releaseTouchButton(page: Page, selector: string, pointerId: number): Promise<void> {
+  await page.locator(selector).dispatchEvent('pointerup', {
+    pointerId,
+    pointerType: 'touch',
+    isPrimary: pointerId === 21,
+    buttons: 0,
+    button: 0,
+  });
+}
+
+async function expectTouchButtonsToBeTopHitTargets(page: Page): Promise<void> {
+  const misses = await page.evaluate((selectors) => {
+    return selectors.flatMap((selector) => {
+      const element = document.querySelector<HTMLElement>(selector);
+      if (!element || element.hidden) {
+        return [`${selector} is missing or hidden`];
+      }
+      const rect = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return hit === element || element.contains(hit) ? [] : [`${selector} center hit ${hit?.id || hit?.tagName || 'nothing'}`];
+    });
+  }, touchButtonSelectors);
+
+  expect(misses).toEqual([]);
+}
+
+async function expectElementsNotToOverlap(
+  page: Page,
+  sourceSelectors: readonly string[],
+  targetSelector: string,
+): Promise<void> {
+  const overlaps = await page.evaluate(
+    ({ sources, target }) => {
+      const targetElement = document.querySelector<HTMLElement>(target);
+      if (!targetElement || targetElement.hidden) {
+        return [];
+      }
+      const targetRect = targetElement.getBoundingClientRect();
+      return sources.flatMap((source) => {
+        const sourceElement = document.querySelector<HTMLElement>(source);
+        if (!sourceElement || sourceElement.hidden) {
+          return [];
+        }
+        const sourceRect = sourceElement.getBoundingClientRect();
+        const overlaps =
+          sourceRect.left < targetRect.right &&
+          sourceRect.right > targetRect.left &&
+          sourceRect.top < targetRect.bottom &&
+          sourceRect.bottom > targetRect.top;
+        return overlaps ? [`${source} overlaps ${target}`] : [];
+      });
+    },
+    { sources: sourceSelectors, target: targetSelector },
+  );
+
+  expect(overlaps).toEqual([]);
 }
 
 async function expectRaceStatusTextToFit(page: Page, labels: readonly string[]): Promise<void> {

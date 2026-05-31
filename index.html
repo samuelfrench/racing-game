@@ -65,6 +65,14 @@
               <option value="hood">Hood</option>
             </select>
           </label>
+          <label class="settings-row" for="touch-controls-mode">
+            <span>Touch controls</span>
+            <select id="touch-controls-mode" name="touchControlsMode">
+              <option value="auto">Auto</option>
+              <option value="on">On</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
           <label class="settings-row" for="master-volume">
             <span>Volume</span>
             <input id="master-volume" name="masterVolume" type="range" min="0" max="100" step="1" />
@@ -95,6 +103,18 @@
         <span><strong>Drift</strong> Space</span>
         <span><strong>Boost</strong> Shift</span>
         <span><strong>Reset</strong> R</span>
+      </section>
+      <section id="touch-controls" class="touch-controls hidden" aria-label="Touch controls" hidden>
+        <div class="touch-bank touch-bank-steer" aria-label="Steering">
+          <button id="touch-left" type="button" data-touch-action="left" aria-label="Steer left">Left</button>
+          <button id="touch-right" type="button" data-touch-action="right" aria-label="Steer right">Right</button>
+        </div>
+        <div class="touch-bank touch-bank-drive" aria-label="Driving">
+          <button id="touch-throttle" type="button" data-touch-action="throttle" aria-label="Throttle">Gas</button>
+          <button id="touch-brake" type="button" data-touch-action="brake" aria-label="Brake">Brake</button>
+          <button id="touch-drift" type="button" data-touch-action="drift" aria-label="Drift">Drift</button>
+          <button id="touch-boost" type="button" data-touch-action="boost" aria-label="Boost">Boost</button>
+        </div>
       </section>
       <section id="start-panel" aria-label="Game start">
         <div>

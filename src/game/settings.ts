@@ -2,6 +2,7 @@ import type { SpeedEffectState } from './speed-effects';
 
 export type GraphicsQuality = 'high' | 'balanced' | 'low';
 export type CameraMode = 'chase' | 'far' | 'hood';
+export type TouchControlsMode = 'auto' | 'on' | 'off';
 
 export type GameSettings = {
   readonly graphicsQuality: GraphicsQuality;
@@ -11,6 +12,7 @@ export type GameSettings = {
   readonly reducedMotion: boolean;
   readonly highContrast: boolean;
   readonly showControlHints: boolean;
+  readonly touchControlsMode: TouchControlsMode;
 };
 
 export const DEFAULT_GAME_SETTINGS: GameSettings = Object.freeze({
@@ -21,6 +23,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = Object.freeze({
   reducedMotion: false,
   highContrast: false,
   showControlHints: true,
+  touchControlsMode: 'auto',
 });
 
 export const GAME_SETTINGS_STORAGE_KEY = 'racing-game:settings';
@@ -113,6 +116,7 @@ export function sanitizeGameSettings(value: unknown): GameSettings {
       value.showControlHints,
       DEFAULT_GAME_SETTINGS.showControlHints,
     ),
+    touchControlsMode: sanitizeTouchControlsMode(value.touchControlsMode),
   };
 }
 
@@ -198,6 +202,13 @@ function sanitizeCameraMode(value: unknown): CameraMode {
     return value;
   }
   return DEFAULT_GAME_SETTINGS.cameraMode;
+}
+
+function sanitizeTouchControlsMode(value: unknown): TouchControlsMode {
+  if (value === 'auto' || value === 'on' || value === 'off') {
+    return value;
+  }
+  return DEFAULT_GAME_SETTINGS.touchControlsMode;
 }
 
 function sanitizeVolume(value: unknown): number {

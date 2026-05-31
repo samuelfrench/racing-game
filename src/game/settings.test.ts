@@ -44,6 +44,7 @@ describe('settings state', () => {
       reducedMotion: false,
       highContrast: false,
       showControlHints: true,
+      touchControlsMode: 'auto',
     });
   });
 
@@ -55,6 +56,7 @@ describe('settings state', () => {
         masterVolume: 0.35,
         muted: true,
         reducedMotion: true,
+        touchControlsMode: 'on',
       }),
     ).toEqual({
       ...DEFAULT_GAME_SETTINGS,
@@ -63,6 +65,7 @@ describe('settings state', () => {
       masterVolume: 0.35,
       muted: true,
       reducedMotion: true,
+      touchControlsMode: 'on',
     });
   });
 
@@ -76,8 +79,17 @@ describe('settings state', () => {
         reducedMotion: 1,
         highContrast: null,
         showControlHints: 'false',
+        touchControlsMode: 'sometimes',
       }),
     ).toEqual(DEFAULT_GAME_SETTINGS);
+  });
+
+  test('preserves every supported touch controls mode from stored settings', () => {
+    for (const mode of ['auto', 'on', 'off'] as const) {
+      expect(sanitizeGameSettings({ touchControlsMode: mode })).toMatchObject({
+        touchControlsMode: mode,
+      });
+    }
   });
 
   test('clamps finite volume values into the supported range', () => {
@@ -97,6 +109,7 @@ describe('settings state', () => {
         reducedMotion: true,
         highContrast: true,
         showControlHints: false,
+        touchControlsMode: 'off',
       }),
     );
 
@@ -108,6 +121,7 @@ describe('settings state', () => {
       reducedMotion: true,
       highContrast: true,
       showControlHints: false,
+      touchControlsMode: 'off',
     });
   });
 
@@ -131,7 +145,8 @@ describe('settings state', () => {
       cameraMode: 'far',
       masterVolume: 2,
       muted: true,
-    } as GameSettings);
+      touchControlsMode: 'bogus',
+    } as unknown as GameSettings);
 
     expect(JSON.parse(storage.getItem(GAME_SETTINGS_STORAGE_KEY) ?? '')).toEqual({
       ...DEFAULT_GAME_SETTINGS,
@@ -139,6 +154,7 @@ describe('settings state', () => {
       cameraMode: 'far',
       masterVolume: 1,
       muted: true,
+      touchControlsMode: 'auto',
     });
     expect(() => writeStoredGameSettings(null, DEFAULT_GAME_SETTINGS)).not.toThrow();
     expect(() => writeStoredGameSettings(undefined, DEFAULT_GAME_SETTINGS)).not.toThrow();

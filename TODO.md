@@ -6,10 +6,11 @@
 
 ## Next Improvements
 
-- [ ] Add mobile/touch controls after desktop controls are solid.
+- [ ] Tune mobile touch control ergonomics after live-device feedback.
 
 ## Completed
 
+- [x] Add mobile/touch controls after desktop controls are solid.
 - [x] Add settings for graphics quality, camera mode, controls, and accessibility.
 - [x] Add audio with engine pitch, tire skid, boost, checkpoint, and lap cues.
 - [x] Improve track art with roadside objects, signage, animated crowds, and stronger sense of speed.

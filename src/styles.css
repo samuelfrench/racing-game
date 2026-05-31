@@ -14,12 +14,20 @@
   box-sizing: border-box;
 }
 
+html {
+  min-width: 320px;
+  min-height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
   overflow: hidden;
   background: #080b0f;
+  overscroll-behavior: none;
 }
 
 button {
@@ -45,6 +53,7 @@ input {
 #game-canvas {
   display: block;
   background: #0a1118;
+  touch-action: none;
 }
 
 #speed-vignette {
@@ -275,6 +284,8 @@ input {
   box-shadow: 0 24px 70px rgb(0 0 0 / 38%);
   pointer-events: auto;
   backdrop-filter: blur(18px);
+  overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
 .settings-panel.hidden {
@@ -406,6 +417,14 @@ input {
   display: none;
 }
 
+.touch-controls-visible #control-hints {
+  bottom: 156px;
+}
+
+.touch-controls-visible .results-panel {
+  bottom: 156px;
+}
+
 #control-hints span {
   white-space: nowrap;
 }
@@ -413,6 +432,72 @@ input {
 #control-hints strong {
   color: #ffe66b;
   font-weight: 900;
+}
+
+.touch-controls {
+  position: fixed;
+  inset: auto 12px 12px;
+  z-index: 3;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.touch-controls.hidden {
+  display: none;
+}
+
+.touch-bank {
+  display: grid;
+  gap: 8px;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.touch-bank-steer,
+.touch-bank-drive {
+  grid-template-columns: repeat(2, 68px);
+}
+
+.touch-controls button {
+  width: 68px;
+  height: 62px;
+  min-width: 68px;
+  min-height: 62px;
+  padding: 0 4px;
+  border: 1px solid rgb(255 255 255 / 34%);
+  border-radius: 8px;
+  color: #f8fbff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: linear-gradient(145deg, rgb(6 14 18 / 88%), rgb(17 43 52 / 82%));
+  box-shadow: 0 14px 34px rgb(0 0 0 / 34%);
+  backdrop-filter: blur(14px);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+}
+
+.touch-controls button:active,
+.touch-controls button.touch-active {
+  border-color: rgb(255 230 107 / 86%);
+  color: #051014;
+  background: #ffe66b;
+  box-shadow: 0 10px 28px rgb(255 230 107 / 24%);
+}
+
+.touch-controls button:focus-visible {
+  border-color: #ffffff;
+  outline: 2px solid #36f1ff;
+  outline-offset: 2px;
 }
 
 #start-panel {
@@ -465,10 +550,17 @@ input {
 .settings-high-contrast .settings-panel,
 .settings-high-contrast #settings-button,
 .settings-high-contrast #control-hints,
+.settings-high-contrast .touch-controls button,
 .settings-high-contrast .results-panel {
   border-color: rgb(255 255 255 / 62%);
   background: rgb(1 5 7 / 90%);
   box-shadow: 0 0 0 1px rgb(255 230 107 / 34%), 0 18px 50px rgb(0 0 0 / 42%);
+}
+
+.settings-high-contrast .touch-controls button:active,
+.settings-high-contrast .touch-controls button.touch-active {
+  color: #000000;
+  background: #ffffff;
 }
 
 .settings-high-contrast .eyebrow,
@@ -517,6 +609,10 @@ input {
     min-height: 36px;
   }
 
+  .touch-controls-visible #settings-button {
+    bottom: 196px;
+  }
+
   .settings-panel {
     top: auto;
     right: 10px;
@@ -539,4 +635,51 @@ input {
     overflow: hidden;
   }
 
+  .touch-controls-visible #control-hints {
+    right: 10px;
+    bottom: 148px;
+  }
+
+  .touch-controls-visible .results-panel {
+    bottom: 148px;
+  }
+
+}
+
+@media (max-width: 420px) {
+  .touch-controls {
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    gap: 8px;
+  }
+
+  .touch-bank {
+    gap: 6px;
+  }
+
+  .touch-bank-steer,
+  .touch-bank-drive {
+    grid-template-columns: repeat(2, 60px);
+  }
+
+  .touch-controls button {
+    width: 60px;
+    height: 58px;
+    min-width: 60px;
+    min-height: 58px;
+    font-size: 0.66rem;
+  }
+
+  .touch-controls-visible #control-hints {
+    bottom: 140px;
+  }
+
+  .touch-controls-visible #settings-button {
+    bottom: 188px;
+  }
+
+  .touch-controls-visible .results-panel {
+    bottom: 140px;
+  }
 }

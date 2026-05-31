@@ -35,7 +35,20 @@ import {
   type GameSettings,
   type GraphicsQuality,
   type SettingsStorage,
+  type TouchControlsMode,
 } from './game/settings';
+import {
+  TOUCH_ACTIONS,
+  clearTouchAction,
+  clearTouchControls,
+  createTouchControlState,
+  getActiveTouchActions,
+  mergeControlInputs,
+  resolveTouchInput,
+  setTouchActionActive,
+  shouldShowTouchControls,
+  type TouchAction,
+} from './game/touch-controls';
 
 type HudElements = {
   lap: HTMLElement;
@@ -56,6 +69,7 @@ type SettingsElements = {
   panel: HTMLElement;
   graphicsQuality: HTMLSelectElement;
   cameraMode: HTMLSelectElement;
+  touchControlsMode: HTMLSelectElement;
   masterVolume: HTMLInputElement;
   muted: HTMLInputElement;
   reducedMotion: HTMLInputElement;
@@ -64,6 +78,11 @@ type SettingsElements = {
   close: HTMLButtonElement;
   reset: HTMLButtonElement;
   controlHints: HTMLElement;
+};
+
+type TouchControlElements = {
+  overlay: HTMLElement;
+  buttons: Record<TouchAction, HTMLButtonElement>;
 };
 
 type GraphicsProfile = ReturnType<typeof resolveGraphicsProfile>;
@@ -98,6 +117,12 @@ type DebugState = {
     readonly fov: number;
   };
   controlHintsVisible: boolean;
+  touchControls: {
+    readonly visible: boolean;
+    readonly mode: TouchControlsMode;
+    readonly activeActions: readonly TouchAction[];
+    readonly input: ControlInput;
+  };
   opponents: readonly DebugOpponent[];
   results: readonly RaceResult[];
 };
@@ -151,6 +176,7 @@ const settingsElements = {
   panel: mustGet('settings-panel'),
   graphicsQuality: mustGet<HTMLSelectElement>('graphics-quality'),
   cameraMode: mustGet<HTMLSelectElement>('camera-mode'),
+  touchControlsMode: mustGet<HTMLSelectElement>('touch-controls-mode'),
   masterVolume: mustGet<HTMLInputElement>('master-volume'),
   muted: mustGet<HTMLInputElement>('audio-muted'),
   reducedMotion: mustGet<HTMLInputElement>('reduced-motion'),
@@ -160,6 +186,17 @@ const settingsElements = {
   reset: mustGet<HTMLButtonElement>('settings-reset'),
   controlHints: mustGet('control-hints'),
 } satisfies SettingsElements;
+const touchControls = {
+  overlay: mustGet('touch-controls'),
+  buttons: {
+    left: mustGet<HTMLButtonElement>('touch-left'),
+    right: mustGet<HTMLButtonElement>('touch-right'),
+    throttle: mustGet<HTMLButtonElement>('touch-throttle'),
+    brake: mustGet<HTMLButtonElement>('touch-brake'),
+    drift: mustGet<HTMLButtonElement>('touch-drift'),
+    boost: mustGet<HTMLButtonElement>('touch-boost'),
+  },
+} satisfies TouchControlElements;
 
 const track = createDefaultTrack();
 const renderer = new THREE.WebGLRenderer({
@@ -177,6 +214,8 @@ scene.fog = new THREE.FogExp2(0x071017, 0.0048);
 
 const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 950);
 const keys = new Set<string>();
+const touchState = createTouchControlState();
+let touchControlsVisible = false;
 const checkpointMeshes = new Map<string, THREE.Object3D>();
 const startPose = getStartPose(track);
 let vehicle = createVehicleAtStart();
@@ -247,12 +286,13 @@ const cameraTarget = new THREE.Vector3();
 const cameraPosition = new THREE.Vector3(startPose.x, 38, startPose.z - 58);
 
 setupSettings();
+setupTouchControls();
 applyRuntimeSettings();
 window.__racingGameDebug = createDebugState();
 setupInput();
 setupStartButton();
 resize();
-window.addEventListener('resize', resize);
+window.addEventListener('resize', handleResize);
 requestAnimationFrame(loop);
 
 function loop(timestamp = performance.now()): void {
@@ -744,6 +784,41 @@ function setupInput(): void {
     }
     keys.delete(event.key.toLowerCase());
   });
+
+  window.addEventListener('blur', clearAllTouchControls);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      clearAllTouchControls();
+    }
+  });
+}
+
+function setupTouchControls(): void {
+  for (const action of TOUCH_ACTIONS) {
+    const button = touchControls.buttons[action];
+    if (button.dataset.touchAction !== action) {
+      throw new Error(`Expected #${button.id} to use data-touch-action="${action}"`);
+    }
+    button.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      setTouchActionActive(touchState, action, event.pointerId);
+      button.classList.add('touch-active');
+      trySetPointerCapture(button, event.pointerId);
+    });
+    for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) {
+      button.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        clearTouchAction(touchState, action, event.pointerId);
+        syncTouchButtonStates();
+      });
+    }
+  }
+
+  for (const eventName of ['pointerup', 'pointercancel'] as const) {
+    window.addEventListener(eventName, (event) => {
+      clearTouchPointer(event.pointerId);
+    });
+  }
 }
 
 function setupSettings(): void {
@@ -759,6 +834,9 @@ function setupSettings(): void {
   });
   settingsElements.cameraMode.addEventListener('change', () => {
     updateSettings({ cameraMode: settingsElements.cameraMode.value as CameraMode });
+  });
+  settingsElements.touchControlsMode.addEventListener('change', () => {
+    updateSettings({ touchControlsMode: settingsElements.touchControlsMode.value as TouchControlsMode });
   });
   settingsElements.masterVolume.addEventListener('input', () => {
     updateSettings({ masterVolume: Number(settingsElements.masterVolume.value) / 100 });
@@ -814,6 +892,7 @@ function updateSettings(nextSettings: Partial<GameSettings>): void {
 function syncSettingsControls(): void {
   settingsElements.graphicsQuality.value = settings.graphicsQuality;
   settingsElements.cameraMode.value = settings.cameraMode;
+  settingsElements.touchControlsMode.value = settings.touchControlsMode;
   settingsElements.masterVolume.value = String(Math.round(settings.masterVolume * 100));
   settingsElements.muted.checked = settings.muted;
   settingsElements.reducedMotion.checked = settings.reducedMotion;
@@ -828,6 +907,7 @@ function applyRuntimeSettings(): void {
   document.body.classList.toggle('settings-reduced-motion', settings.reducedMotion);
   settingsElements.controlHints.classList.toggle('hidden', !settings.showControlHints);
   settingsElements.controlHints.hidden = !settings.showControlHints;
+  updateTouchControlsVisibility();
   applySceneColors();
   resize();
 }
@@ -844,6 +924,48 @@ function setSettingsPanelOpen(open: boolean): void {
   settingsElements.panel.hidden = !open;
   settingsElements.panel.classList.toggle('hidden', !open);
   settingsElements.button.setAttribute('aria-expanded', String(open));
+}
+
+function updateTouchControlsVisibility(): void {
+  touchControlsVisible = shouldShowTouchControls(settings.touchControlsMode, {
+    coarsePointer: window.matchMedia('(pointer: coarse)').matches,
+    viewportWidth: window.innerWidth,
+  });
+  touchControls.overlay.hidden = !touchControlsVisible;
+  touchControls.overlay.classList.toggle('hidden', !touchControlsVisible);
+  document.body.classList.toggle('touch-controls-visible', touchControlsVisible);
+  if (!touchControlsVisible) {
+    clearAllTouchControls();
+  }
+}
+
+function clearAllTouchControls(): void {
+  clearTouchControls(touchState);
+  syncTouchButtonStates();
+}
+
+function clearTouchPointer(pointerId: number): void {
+  for (const action of TOUCH_ACTIONS) {
+    clearTouchAction(touchState, action, pointerId);
+  }
+  syncTouchButtonStates();
+}
+
+function syncTouchButtonStates(): void {
+  for (const action of TOUCH_ACTIONS) {
+    touchControls.buttons[action].classList.toggle(
+      'touch-active',
+      touchState.pointersByAction[action].size > 0,
+    );
+  }
+}
+
+function trySetPointerCapture(button: HTMLButtonElement, pointerId: number): void {
+  try {
+    button.setPointerCapture(pointerId);
+  } catch {
+    // Synthetic browser tests and some old touch browsers may not allow capture for this event.
+  }
 }
 
 function isSettingsFormEvent(event: KeyboardEvent): boolean {
@@ -864,11 +986,12 @@ function setupStartButton(): void {
 }
 
 function readInput(): ControlInput {
-  return resolveInputFromKeys(keys);
+  return mergeControlInputs(resolveInputFromKeys(keys), resolveTouchInput(touchState));
 }
 
 function resetRace(): void {
   keys.clear();
+  clearAllTouchControls();
   vehicle = createVehicleAtStart();
   progress = createRaceProgress(track.checkpoints, 3);
   session = resetRaceSession(session);
@@ -1085,6 +1208,11 @@ function resize(): void {
   camera.updateProjectionMatrix();
 }
 
+function handleResize(): void {
+  resize();
+  updateTouchControlsVisibility();
+}
+
 function createDebugState(): DebugState {
   const next = track.checkpoints[progress.nextCheckpointIndex];
   return {
@@ -1121,6 +1249,12 @@ function createDebugState(): DebugState {
       fov: camera.fov,
     },
     controlHintsVisible: !settingsElements.controlHints.hidden,
+    touchControls: {
+      visible: touchControlsVisible,
+      mode: settings.touchControlsMode,
+      activeActions: getActiveTouchActions(touchState),
+      input: resolveTouchInput(touchState),
+    },
     opponents: opponents.map((opponent) => ({
       id: opponent.id,
       x: opponent.position.x,
