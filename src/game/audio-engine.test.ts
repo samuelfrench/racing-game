@@ -60,6 +60,30 @@ describe('RaceAudioEngine', () => {
       contextState: 'running',
     });
   });
+
+  test('reuses debug state object across reads', () => {
+    const resume = createDeferred<void>();
+    const FakeAudioContext = createFakeAudioContext({
+      initialState: 'running',
+      resume,
+    });
+    const engine = createRaceAudioEngine({
+      AudioContext: FakeAudioContext,
+    } as unknown as Window);
+
+    const firstDebug = engine.getDebugState();
+    engine.update({
+      masterGain: 0.42,
+      engineFrequency: 240,
+      engineGain: 0.11,
+      skidGain: 0.2,
+      boostGain: 0.08,
+    });
+    const secondDebug = engine.getDebugState();
+
+    expect(secondDebug).toBe(firstDebug);
+    expect(secondDebug.engineFrequency).toBe(240);
+  });
 });
 
 function createFakeAudioContext(options: {

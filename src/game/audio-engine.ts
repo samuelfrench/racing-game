@@ -12,6 +12,18 @@ export type RaceAudioDebugState = {
   readonly lastCue: string | null;
 };
 
+type RaceAudioDebugStateTarget = {
+  available: boolean;
+  started: boolean;
+  contextState: string;
+  engineFrequency: number;
+  engineGain: number;
+  skidGain: number;
+  boostGain: number;
+  cueCount: number;
+  lastCue: string | null;
+};
+
 export type RaceAudioEngine = {
   start(): Promise<void>;
   update(mix: RaceAudioMix): void;
@@ -53,6 +65,17 @@ class BrowserRaceAudioEngine implements RaceAudioEngine {
   private readonly AudioContextConstructor: AudioContextConstructor | null;
   private graph: RaceAudioGraph | null = null;
   private readonly currentMix: RaceAudioMixTarget = { ...initialMix };
+  private readonly debugState: RaceAudioDebugStateTarget = {
+    available: false,
+    started: false,
+    contextState: 'unavailable',
+    engineFrequency: initialMix.engineFrequency,
+    engineGain: initialMix.engineGain,
+    skidGain: initialMix.skidGain,
+    boostGain: initialMix.boostGain,
+    cueCount: 0,
+    lastCue: null,
+  };
   private unavailable = false;
   private started = false;
   private cueCount = 0;
@@ -140,17 +163,16 @@ class BrowserRaceAudioEngine implements RaceAudioEngine {
 
   getDebugState(): RaceAudioDebugState {
     const available = Boolean(this.AudioContextConstructor) && !this.unavailable;
-    return {
-      available,
-      started: this.started,
-      contextState: available ? (this.graph?.context.state ?? 'not-started') : 'unavailable',
-      engineFrequency: this.currentMix.engineFrequency,
-      engineGain: this.currentMix.engineGain,
-      skidGain: this.currentMix.skidGain,
-      boostGain: this.currentMix.boostGain,
-      cueCount: this.cueCount,
-      lastCue: this.lastCue,
-    };
+    this.debugState.available = available;
+    this.debugState.started = this.started;
+    this.debugState.contextState = available ? (this.graph?.context.state ?? 'not-started') : 'unavailable';
+    this.debugState.engineFrequency = this.currentMix.engineFrequency;
+    this.debugState.engineGain = this.currentMix.engineGain;
+    this.debugState.skidGain = this.currentMix.skidGain;
+    this.debugState.boostGain = this.currentMix.boostGain;
+    this.debugState.cueCount = this.cueCount;
+    this.debugState.lastCue = this.lastCue;
+    return this.debugState;
   }
 }
 
