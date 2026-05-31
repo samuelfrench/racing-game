@@ -54,6 +54,11 @@ import {
   rankRaceParticipants,
   type RacePositionState,
 } from './game/race-position';
+import {
+  createTrackFeedbackState,
+  updateTrackFeedback,
+  type TrackFeedbackState,
+} from './game/track-feedback';
 
 type HudElements = {
   lap: HTMLElement;
@@ -101,6 +106,7 @@ type DebugState = {
   countdownSeconds: number;
   frame: number;
   speed: number;
+  trackFeedback: TrackFeedbackState;
   lap: number;
   checkpoint: string;
   carX: number;
@@ -249,6 +255,7 @@ const startPose = getStartPose(track);
 let vehicle = createVehicleAtStart();
 let progress = createRaceProgress(track.checkpoints, 3);
 let session: RaceSession = createRaceSession();
+let trackFeedback = createTrackFeedbackState();
 let opponents: readonly OpponentState[] = createOpponentGrid(track, progress.totalLaps);
 let running = false;
 let elapsedSeconds = 0;
@@ -360,6 +367,14 @@ function loop(timestamp = performance.now()): void {
       deltaSeconds,
       trackGrip: surface.grip,
     });
+    const feedbackResult = updateTrackFeedback(trackFeedback, {
+      track,
+      vehicle,
+      deltaSeconds,
+      racing: session.phase === 'racing',
+    });
+    trackFeedback = feedbackResult.state;
+    vehicle = feedbackResult.vehicle;
     progress = updateRaceProgress(progress, track.checkpoints, vehicle.position, elapsedSeconds);
     opponents = stepOpponents(opponents, track, deltaSeconds, true, elapsedSeconds);
 
@@ -373,6 +388,9 @@ function loop(timestamp = performance.now()): void {
       session = finishRace(session, [playerResult, ...getOpponentResults(opponents)]);
       running = false;
     }
+  }
+  if (session.phase !== 'racing') {
+    trackFeedback = createTrackFeedbackState();
   }
 
   updateCarMesh(car, vehicle);
@@ -794,7 +812,7 @@ function updateHud(raceProgress: RaceProgress, state: VehicleState): void {
   hud.speed.textContent = Math.max(0, Math.round(Math.abs(state.speed) * 2.237)).toString().padStart(3, '0');
   hud.checkpoint.textContent = next ? next.id.toUpperCase() : 'FINISH';
   hud.bestLap.textContent = raceProgress.bestLapSeconds === null ? '--' : formatSeconds(raceProgress.bestLapSeconds);
-  hud.raceStatus.textContent = getRaceStatusText(session);
+  hud.raceStatus.textContent = getRaceStatusText(session, trackFeedback);
   hud.boostMeter.style.transform = `scaleX(${state.boostFuel.toFixed(3)})`;
 }
 
@@ -1222,6 +1240,7 @@ function resetRace(): void {
   vehicle = createVehicleAtStart();
   progress = createRaceProgress(track.checkpoints, 3);
   session = resetRaceSession(session);
+  trackFeedback = createTrackFeedbackState();
   opponents = createOpponentGrid(track, progress.totalLaps);
   elapsedSeconds = 0;
   speedEffects = computeSpeedEffects({
@@ -1330,7 +1349,7 @@ function updateResultsBoard(): void {
   renderedResultsKey = resultsKey;
 }
 
-function getRaceStatusText(currentSession: RaceSession): string {
+function getRaceStatusText(currentSession: RaceSession, feedback: TrackFeedbackState): string {
   if (currentSession.phase === 'idle') {
     return 'READY';
   }
@@ -1338,7 +1357,7 @@ function getRaceStatusText(currentSession: RaceSession): string {
     return String(Math.max(1, Math.ceil(currentSession.countdownSeconds)));
   }
   if (currentSession.phase === 'racing') {
-    return 'GO';
+    return feedback.message ?? 'GO';
   }
   return 'FINISH';
 }
@@ -1448,6 +1467,7 @@ function createDebugState(): DebugState {
     countdownSeconds: session.countdownSeconds,
     frame,
     speed: vehicle.speed,
+    trackFeedback: { ...trackFeedback },
     lap: progress.currentLap,
     checkpoint: next?.id ?? 'finish',
     carX: vehicle.position.x,

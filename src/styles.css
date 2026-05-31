@@ -144,7 +144,7 @@ input {
 #race-status {
   color: #ffe66b;
   font-family: "Bahnschrift", "Aptos Display", sans-serif;
-  font-size: clamp(1.5rem, 3.2vw, 2.5rem);
+  font-size: 1.5rem;
   font-weight: 900;
   line-height: 0.9;
   text-align: center;
@@ -681,7 +681,7 @@ input {
 
 @media (min-width: 721px) and (max-width: 880px) {
   #hud {
-    grid-template-columns: minmax(132px, 1fr) 112px 118px 228px;
+    grid-template-columns: minmax(132px, 1fr) 112px 184px 228px;
     gap: 8px;
   }
 

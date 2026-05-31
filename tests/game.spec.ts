@@ -6,6 +6,13 @@ type DebugState = {
   countdownSeconds: number;
   frame: number;
   speed: number;
+  trackFeedback: {
+    distanceFromCenter: number;
+    offTrack: boolean;
+    wrongWay: boolean;
+    recovering: boolean;
+    message: 'OFF TRACK' | 'WRONG WAY' | 'RECOVERING' | null;
+  };
   lap: number;
   checkpoint: string;
   carX: number;
@@ -133,7 +140,7 @@ for (const viewport of viewports) {
     await expect(page.locator('#race-position')).toHaveText(/^[1-4]\/4$/);
     await expect(page.locator('#minimap-canvas')).toBeVisible();
     await expectElementToBeWithinViewport(page, '#minimap-canvas');
-    await expectRaceStatusTextToFit(page, ['READY', '3', 'GO', 'FINISH']);
+    await expectRaceStatusTextToFit(page, ['READY', '3', 'GO', 'FINISH', 'OFF TRACK', 'WRONG WAY', 'RECOVERING']);
     await expect(page.locator('#start-button')).toBeVisible();
     await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
     await expect.poll(() => readDebug(page).then((debug) => debug.frame)).toBeGreaterThan(3);
@@ -246,6 +253,30 @@ for (const viewport of viewports) {
     await page.screenshot({ path: `test-results/racing-game-${viewport.name}.png`, fullPage: true });
   });
 }
+
+test('shows wrong-way feedback when reversing after launch', async ({ page }) => {
+  const consoleErrors = collectConsoleErrors(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  await expect.poll(() => hasDebugState(page)).toBe(true);
+
+  await page.locator('#start-button').click();
+  await expect.poll(() => readDebug(page).then((debug) => debug.phase), { timeout: 5_000 }).toBe('racing');
+
+  await page.keyboard.down('ArrowDown');
+  await expect
+    .poll(() => readDebug(page).then((debug) => debug.trackFeedback.wrongWay), {
+      message: 'reverse travel triggers wrong-way feedback',
+    })
+    .toBe(true);
+  await expect(page.locator('#race-status')).toHaveText('WRONG WAY');
+  const debug = await readDebug(page);
+  expect(debug.trackFeedback.message).toBe('WRONG WAY');
+  expect(Math.abs(debug.speed)).toBeGreaterThan(3);
+  await page.keyboard.up('ArrowDown');
+
+  expect(consoleErrors).toEqual([]);
+});
 
 test('settings persist and affect race runtime debug state on desktop', async ({ page }) => {
   const consoleErrors: string[] = [];
