@@ -19,9 +19,10 @@ import { createInitialVehicleState, stepVehicle, type VehicleState } from './gam
 import { createRaceAudioEngine, type RaceAudioDebugState } from './game/audio-engine';
 import {
   collectRaceAudioCues,
-  computeRaceAudioMix,
-  createRaceAudioSnapshot,
-  type RaceAudioSnapshot,
+  writeRaceAudioMix,
+  writeRaceAudioSnapshot,
+  type RaceAudioMixTarget,
+  type RaceAudioSnapshotTarget,
 } from './game/audio-state';
 
 type HudElements = {
@@ -136,7 +137,36 @@ let speedEffects: SpeedEffectState = computeSpeedEffects({
   previousIntensity: 0,
 });
 const audioEngine = createRaceAudioEngine();
-let lastAudioSnapshot: RaceAudioSnapshot = createCurrentAudioSnapshot();
+const audioMixInput = {
+  phase: session.phase,
+  speed: 0,
+  drift: 0,
+  boostActive: false,
+};
+const audioMix: RaceAudioMixTarget = {
+  masterGain: 0.16,
+  engineFrequency: 72,
+  engineGain: 0,
+  skidGain: 0,
+  boostGain: 0,
+};
+const audioSnapshotInput: RaceAudioSnapshotTarget = {
+  phase: session.phase,
+  lap: progress.currentLap,
+  checkpoint: 'finish',
+};
+const currentAudioSnapshot: RaceAudioSnapshotTarget = {
+  phase: session.phase,
+  lap: progress.currentLap,
+  checkpoint: 'finish',
+};
+const lastAudioSnapshot: RaceAudioSnapshotTarget = {
+  phase: session.phase,
+  lap: progress.currentLap,
+  checkpoint: 'finish',
+};
+writeCurrentAudioSnapshot(currentAudioSnapshot);
+writeRaceAudioSnapshot(lastAudioSnapshot, currentAudioSnapshot);
 
 const world = buildWorld(track);
 const trackArt = addTracksideObjects(world, track);
@@ -668,44 +698,39 @@ function resetRace(): void {
     deltaSeconds: 0,
     previousIntensity: 0,
   });
-  lastAudioSnapshot = createCurrentAudioSnapshot();
-  audioEngine.update(
-    computeRaceAudioMix({
-      phase: session.phase,
-      speed: 0,
-      drift: 0,
-      boostActive: false,
-    }),
-  );
+  writeCurrentAudioSnapshot(currentAudioSnapshot);
+  writeRaceAudioSnapshot(lastAudioSnapshot, currentAudioSnapshot);
+  audioMixInput.phase = session.phase;
+  audioMixInput.speed = 0;
+  audioMixInput.drift = 0;
+  audioMixInput.boostActive = false;
+  audioEngine.update(writeRaceAudioMix(audioMix, audioMixInput));
   running = false;
   hud.startPanel.classList.remove('hidden');
   updateResultsBoard();
 }
 
 function updateRaceAudio(boostActive: boolean): void {
-  audioEngine.update(
-    computeRaceAudioMix({
-      phase: session.phase,
-      speed: vehicle.speed,
-      drift: vehicle.drift,
-      boostActive,
-    }),
-  );
+  audioMixInput.phase = session.phase;
+  audioMixInput.speed = vehicle.speed;
+  audioMixInput.drift = vehicle.drift;
+  audioMixInput.boostActive = boostActive;
+  audioEngine.update(writeRaceAudioMix(audioMix, audioMixInput));
 
-  const currentSnapshot = createCurrentAudioSnapshot();
-  for (const cue of collectRaceAudioCues(lastAudioSnapshot, currentSnapshot)) {
-    audioEngine.playCue(cue);
+  writeCurrentAudioSnapshot(currentAudioSnapshot);
+  const cues = collectRaceAudioCues(lastAudioSnapshot, currentAudioSnapshot);
+  for (let index = 0; index < cues.length; index += 1) {
+    audioEngine.playCue(cues[index]);
   }
-  lastAudioSnapshot = currentSnapshot;
+  writeRaceAudioSnapshot(lastAudioSnapshot, currentAudioSnapshot);
 }
 
-function createCurrentAudioSnapshot(): RaceAudioSnapshot {
+function writeCurrentAudioSnapshot(target: RaceAudioSnapshotTarget): RaceAudioSnapshotTarget {
   const next = track.checkpoints[progress.nextCheckpointIndex];
-  return createRaceAudioSnapshot({
-    phase: session.phase,
-    lap: progress.currentLap,
-    checkpoint: next?.id ?? 'finish',
-  });
+  audioSnapshotInput.phase = session.phase;
+  audioSnapshotInput.lap = progress.currentLap;
+  audioSnapshotInput.checkpoint = next?.id ?? 'finish';
+  return writeRaceAudioSnapshot(target, audioSnapshotInput);
 }
 
 function finishRemainingOpponents(currentOpponents: readonly OpponentState[], raceElapsedSeconds: number): readonly OpponentState[] {

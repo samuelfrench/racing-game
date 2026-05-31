@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'vitest';
-import { collectRaceAudioCues, computeRaceAudioMix, createRaceAudioSnapshot } from './audio-state';
+import {
+  collectRaceAudioCues,
+  computeRaceAudioMix,
+  createRaceAudioSnapshot,
+  writeRaceAudioMix,
+  writeRaceAudioSnapshot,
+  type RaceAudioMix,
+  type RaceAudioSnapshot,
+} from './audio-state';
 
 describe('computeRaceAudioMix', () => {
   test('keeps idle race audio quiet', () => {
@@ -89,6 +97,31 @@ describe('computeRaceAudioMix', () => {
       expect(mix.boostGain).toBe(0);
     }
   });
+
+  test('writes mix values into the provided object', () => {
+    const target: RaceAudioMix = {
+      masterGain: 0,
+      engineFrequency: 0,
+      engineGain: 0,
+      skidGain: 0,
+      boostGain: 0,
+    };
+
+    const result = writeRaceAudioMix(target, {
+      phase: 'racing',
+      speed: 36,
+      drift: 0.08,
+      boostActive: true,
+    });
+
+    expect(result).toBe(target);
+    expect(target).toEqual(computeRaceAudioMix({
+      phase: 'racing',
+      speed: 36,
+      drift: 0.08,
+      boostActive: true,
+    }));
+  });
 });
 
 describe('createRaceAudioSnapshot', () => {
@@ -96,6 +129,27 @@ describe('createRaceAudioSnapshot', () => {
     expect(createRaceAudioSnapshot({ phase: 'racing', lap: Number.NaN, checkpoint: 'start' }).lap).toBe(1);
     expect(createRaceAudioSnapshot({ phase: 'racing', lap: Number.POSITIVE_INFINITY, checkpoint: 'start' }).lap).toBe(1);
     expect(createRaceAudioSnapshot({ phase: 'racing', lap: Number.NEGATIVE_INFINITY, checkpoint: 'start' }).lap).toBe(1);
+  });
+
+  test('writes normalized snapshot values into the provided object', () => {
+    const target: RaceAudioSnapshot = {
+      phase: 'idle',
+      lap: 3,
+      checkpoint: 'old',
+    };
+
+    const result = writeRaceAudioSnapshot(target, {
+      phase: 'racing',
+      lap: Number.NaN,
+      checkpoint: 'harbor',
+    });
+
+    expect(result).toBe(target);
+    expect(target).toEqual({
+      phase: 'racing',
+      lap: 1,
+      checkpoint: 'harbor',
+    });
   });
 });
 
@@ -111,5 +165,12 @@ describe('collectRaceAudioCues', () => {
     expect(collectRaceAudioCues(racing, harbor)).toEqual(['checkpoint']);
     expect(collectRaceAudioCues(harbor, nextLap)).toEqual(['lap']);
     expect(collectRaceAudioCues(nextLap, finished)).toEqual(['finish']);
+  });
+
+  test('returns a stable empty cue list when there is no transition', () => {
+    const previous = createRaceAudioSnapshot({ phase: 'racing', lap: 1, checkpoint: 'start' });
+    const current = createRaceAudioSnapshot({ phase: 'racing', lap: 1, checkpoint: 'start' });
+
+    expect(collectRaceAudioCues(previous, current)).toBe(collectRaceAudioCues(previous, current));
   });
 });

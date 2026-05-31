@@ -84,6 +84,9 @@ for (const viewport of viewports) {
     const before = await readDebug(page);
 
     await page.locator('#start-button').click();
+    await expect.poll(() => readDebug(page).then((debug) => (debug.audio.available ? debug.audio.contextState : 'unavailable')), {
+      message: 'audio context reaches running state from the race-start user gesture',
+    }).toBe('running');
     await expect.poll(() => readDebug(page).then((debug) => debug.audio.started), {
       message: 'audio starts from the race-start user gesture',
     }).toBe(true);

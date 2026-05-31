@@ -1,4 +1,4 @@
-import type { RaceAudioCue, RaceAudioMix } from './audio-state';
+import type { RaceAudioCue, RaceAudioMix, RaceAudioMixTarget } from './audio-state';
 
 export type RaceAudioDebugState = {
   readonly available: boolean;
@@ -52,7 +52,7 @@ export function createRaceAudioEngine(win: Window = window): RaceAudioEngine {
 class BrowserRaceAudioEngine implements RaceAudioEngine {
   private readonly AudioContextConstructor: AudioContextConstructor | null;
   private graph: RaceAudioGraph | null = null;
-  private currentMix = initialMix;
+  private readonly currentMix: RaceAudioMixTarget = { ...initialMix };
   private unavailable = false;
   private started = false;
   private cueCount = 0;
@@ -77,7 +77,6 @@ class BrowserRaceAudioEngine implements RaceAudioEngine {
       }
     }
 
-    this.started = true;
     this.update(this.currentMix);
 
     if (this.graph.context.state === 'suspended') {
@@ -85,12 +84,15 @@ class BrowserRaceAudioEngine implements RaceAudioEngine {
         await this.graph.context.resume();
       } catch {
         this.started = false;
+        return;
       }
     }
+
+    this.started = this.graph.context.state === 'running';
   }
 
   update(mix: RaceAudioMix): void {
-    this.currentMix = sanitizeMix(mix);
+    writeSanitizedMix(this.currentMix, mix);
 
     if (!this.graph) {
       return;
@@ -215,14 +217,14 @@ function createSkidNoiseBuffer(context: AudioContext): AudioBuffer {
   return buffer;
 }
 
-function sanitizeMix(mix: RaceAudioMix): RaceAudioMix {
-  return {
-    masterGain: finiteOr(mix.masterGain, initialMix.masterGain),
-    engineFrequency: finiteOr(mix.engineFrequency, initialMix.engineFrequency),
-    engineGain: finiteOr(mix.engineGain, initialMix.engineGain),
-    skidGain: finiteOr(mix.skidGain, initialMix.skidGain),
-    boostGain: finiteOr(mix.boostGain, initialMix.boostGain),
-  };
+function writeSanitizedMix(target: RaceAudioMixTarget, mix: RaceAudioMix): RaceAudioMixTarget {
+  target.masterGain = finiteOr(mix.masterGain, initialMix.masterGain);
+  target.engineFrequency = finiteOr(mix.engineFrequency, initialMix.engineFrequency);
+  target.engineGain = finiteOr(mix.engineGain, initialMix.engineGain);
+  target.skidGain = finiteOr(mix.skidGain, initialMix.skidGain);
+  target.boostGain = finiteOr(mix.boostGain, initialMix.boostGain);
+
+  return target;
 }
 
 function finiteOr(value: number, fallback: number): number {
