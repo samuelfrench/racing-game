@@ -16,6 +16,13 @@ import { createOpponentGrid, getOpponentResults, stepOpponents, type OpponentSta
 import { createDefaultTrack, sampleTrackSurface, type TrackDefinition, type TrackPoint } from './game/track';
 import { computeSpeedEffects, type SpeedEffectState } from './game/speed-effects';
 import { createInitialVehicleState, stepVehicle, type VehicleState } from './game/vehicle';
+import { createRaceAudioEngine, type RaceAudioDebugState } from './game/audio-engine';
+import {
+  collectRaceAudioCues,
+  computeRaceAudioMix,
+  createRaceAudioSnapshot,
+  type RaceAudioSnapshot,
+} from './game/audio-state';
 
 type HudElements = {
   lap: HTMLElement;
@@ -42,6 +49,7 @@ type DebugState = {
   carX: number;
   carZ: number;
   speedEffects: Pick<SpeedEffectState, 'intensity' | 'cameraFov' | 'vignetteOpacity' | 'streakOpacity'>;
+  audio: RaceAudioDebugState;
   trackArt: TrackArtDebug;
   opponents: readonly DebugOpponent[];
   results: readonly RaceResult[];
@@ -127,6 +135,8 @@ let speedEffects: SpeedEffectState = computeSpeedEffects({
   deltaSeconds: 0,
   previousIntensity: 0,
 });
+const audioEngine = createRaceAudioEngine();
+let lastAudioSnapshot: RaceAudioSnapshot = createCurrentAudioSnapshot();
 
 const world = buildWorld(track);
 const trackArt = addTracksideObjects(world, track);
@@ -200,6 +210,7 @@ function loop(timestamp = performance.now()): void {
   animateTrackArt(deltaSeconds);
   updateHud(progress, vehicle);
   updateResultsBoard();
+  updateRaceAudio(boostActive);
   window.__racingGameDebug = createDebugState();
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
@@ -633,6 +644,7 @@ function setupStartButton(): void {
     if (nextSession.phase !== session.phase) {
       session = nextSession;
       running = true;
+      void audioEngine.start();
       hud.startPanel.classList.add('hidden');
     }
   });
@@ -656,9 +668,44 @@ function resetRace(): void {
     deltaSeconds: 0,
     previousIntensity: 0,
   });
+  lastAudioSnapshot = createCurrentAudioSnapshot();
+  audioEngine.update(
+    computeRaceAudioMix({
+      phase: session.phase,
+      speed: 0,
+      drift: 0,
+      boostActive: false,
+    }),
+  );
   running = false;
   hud.startPanel.classList.remove('hidden');
   updateResultsBoard();
+}
+
+function updateRaceAudio(boostActive: boolean): void {
+  audioEngine.update(
+    computeRaceAudioMix({
+      phase: session.phase,
+      speed: vehicle.speed,
+      drift: vehicle.drift,
+      boostActive,
+    }),
+  );
+
+  const currentSnapshot = createCurrentAudioSnapshot();
+  for (const cue of collectRaceAudioCues(lastAudioSnapshot, currentSnapshot)) {
+    audioEngine.playCue(cue);
+  }
+  lastAudioSnapshot = currentSnapshot;
+}
+
+function createCurrentAudioSnapshot(): RaceAudioSnapshot {
+  const next = track.checkpoints[progress.nextCheckpointIndex];
+  return createRaceAudioSnapshot({
+    phase: session.phase,
+    lap: progress.currentLap,
+    checkpoint: next?.id ?? 'finish',
+  });
 }
 
 function finishRemainingOpponents(currentOpponents: readonly OpponentState[], raceElapsedSeconds: number): readonly OpponentState[] {
@@ -842,6 +889,7 @@ function createDebugState(): DebugState {
       vignetteOpacity: speedEffects.vignetteOpacity,
       streakOpacity: speedEffects.streakOpacity,
     },
+    audio: audioEngine.getDebugState(),
     trackArt: trackArt.debug,
     opponents: opponents.map((opponent) => ({
       id: opponent.id,

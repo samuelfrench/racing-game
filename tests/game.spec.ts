@@ -16,6 +16,17 @@ type DebugState = {
     vignetteOpacity: number;
     streakOpacity: number;
   };
+  audio: {
+    available: boolean;
+    started: boolean;
+    contextState: string;
+    engineFrequency: number;
+    engineGain: number;
+    skidGain: number;
+    boostGain: number;
+    cueCount: number;
+    lastCue: string | null;
+  };
   trackArt: {
     chevrons: number;
     crowdPanels: number;
@@ -73,6 +84,9 @@ for (const viewport of viewports) {
     const before = await readDebug(page);
 
     await page.locator('#start-button').click();
+    await expect.poll(() => readDebug(page).then((debug) => debug.audio.started), {
+      message: 'audio starts from the race-start user gesture',
+    }).toBe(true);
     await expect.poll(() => readDebug(page).then((debug) => debug.phase)).toBe('countdown');
 
     const countdownStart = await readDebug(page);
@@ -101,6 +115,23 @@ for (const viewport of viewports) {
     expect(speedEffectDebug.speedEffects.cameraFov).toBeGreaterThan(62);
     expect(speedEffectDebug.speedEffects.vignetteOpacity).toBeGreaterThan(0);
     expect(speedEffectDebug.speedEffects.streakOpacity).toBeGreaterThan(0);
+    const audioDebug = await readDebug(page);
+    expect(audioDebug.audio.available).toBe(true);
+    expect(audioDebug.audio.engineFrequency).toBeGreaterThan(90);
+    expect(audioDebug.audio.engineGain).toBeGreaterThan(0);
+    expect(audioDebug.audio.boostGain).toBeGreaterThan(0);
+    expect(audioDebug.audio.cueCount).toBeGreaterThanOrEqual(1);
+    expect(audioDebug.audio.lastCue).toBe('start');
+
+    await page.keyboard.down('Space');
+    await page.keyboard.down('ArrowLeft');
+    await expect
+      .poll(() => readDebug(page).then((debug) => debug.audio.skidGain), {
+        message: 'tire skid audio responds to handbrake drift',
+      })
+      .toBeGreaterThan(0);
+    await page.keyboard.up('ArrowLeft');
+    await page.keyboard.up('Space');
     await page.keyboard.up('Shift');
     await page.keyboard.up('ArrowUp');
 
