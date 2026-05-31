@@ -905,8 +905,6 @@ function applyRuntimeSettings(): void {
   cameraProfile = resolveCameraProfile(settings);
   document.body.classList.toggle('settings-high-contrast', settings.highContrast);
   document.body.classList.toggle('settings-reduced-motion', settings.reducedMotion);
-  settingsElements.controlHints.classList.toggle('hidden', !settings.showControlHints);
-  settingsElements.controlHints.hidden = !settings.showControlHints;
   updateTouchControlsVisibility();
   applySceneColors();
   resize();
@@ -926,6 +924,12 @@ function setSettingsPanelOpen(open: boolean): void {
   settingsElements.button.setAttribute('aria-expanded', String(open));
 }
 
+function updateControlHintsVisibility(): void {
+  const visible = settings.showControlHints && !touchControlsVisible;
+  settingsElements.controlHints.classList.toggle('hidden', !visible);
+  settingsElements.controlHints.hidden = !visible;
+}
+
 function updateTouchControlsVisibility(): void {
   touchControlsVisible = shouldShowTouchControls(settings.touchControlsMode, {
     coarsePointer: window.matchMedia('(pointer: coarse)').matches,
@@ -937,6 +941,7 @@ function updateTouchControlsVisibility(): void {
   if (!touchControlsVisible) {
     clearAllTouchControls();
   }
+  updateControlHintsVisibility();
 }
 
 function clearAllTouchControls(): void {

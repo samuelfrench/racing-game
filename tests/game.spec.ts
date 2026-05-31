@@ -380,22 +380,30 @@ test('touch controls visibility follows auto and manual settings', async ({ page
   await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
   await expect(page.locator('#touch-controls')).toBeHidden();
   await expect.poll(() => readDebug(page).then((state) => state.touchControls.visible)).toBe(false);
+  await expect(page.locator('#control-hints')).toBeVisible();
+  await expect.poll(() => readDebug(page).then((state) => state.controlHintsVisible)).toBe(true);
 
   await page.locator('#settings-button').click();
   await page.locator('#touch-controls-mode').selectOption('on');
   await expect(page.locator('#touch-controls')).toBeVisible();
+  await expect(page.locator('#control-hints')).toBeHidden();
   await expect.poll(() => readDebug(page).then((state) => state.settings.touchControlsMode)).toBe('on');
   await expect.poll(() => readDebug(page).then((state) => state.touchControls.visible)).toBe(true);
-
-  await page.locator('#touch-controls-mode').selectOption('off');
-  await expect(page.locator('#touch-controls')).toBeHidden();
-  await expect.poll(() => readDebug(page).then((state) => state.touchControls.visible)).toBe(false);
+  await expect.poll(() => readDebug(page).then((state) => state.controlHintsVisible)).toBe(false);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator('#touch-controls')).toBeHidden();
   await page.locator('#touch-controls-mode').selectOption('auto');
   await expect(page.locator('#touch-controls')).toBeVisible();
+  await expect(page.locator('#control-hints')).toBeHidden();
   await expect.poll(() => readDebug(page).then((state) => state.touchControls.visible)).toBe(true);
+  await expect.poll(() => readDebug(page).then((state) => state.controlHintsVisible)).toBe(false);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.locator('#touch-controls-mode').selectOption('off');
+  await expect(page.locator('#touch-controls')).toBeHidden();
+  await expect(page.locator('#control-hints')).toBeVisible();
+  await expect.poll(() => readDebug(page).then((state) => state.touchControls.visible)).toBe(false);
+  await expect.poll(() => readDebug(page).then((state) => state.controlHintsVisible)).toBe(true);
   expect(consoleErrors).toEqual([]);
 });
 
@@ -410,6 +418,7 @@ test('touch controls stay clear of mobile settings and results surfaces', async 
     await page.locator('#start-button').click();
     await expect(page.locator('#start-panel')).toHaveClass(/hidden/);
     await expectTouchButtonsToBeTopHitTargets(page);
+    await expectTouchButtonsToMeetMinimumSize(page, viewportWidth <= 420 ? 70 : 76, viewportWidth <= 420 ? 64 : 68);
     await expectElementsNotToOverlap(page, touchButtonSelectors, '#settings-button');
 
     await page.evaluate(() => {
@@ -581,6 +590,30 @@ async function expectTouchButtonsToBeTopHitTargets(page: Page): Promise<void> {
   }, touchButtonSelectors);
 
   expect(misses).toEqual([]);
+}
+
+async function expectTouchButtonsToMeetMinimumSize(
+  page: Page,
+  minimumWidth: number,
+  minimumHeight: number,
+): Promise<void> {
+  const undersized = await page.evaluate(
+    ({ selectors, minWidth, minHeight }) => {
+      return selectors.flatMap((selector) => {
+        const element = document.querySelector<HTMLElement>(selector);
+        if (!element || element.hidden) {
+          return [`${selector} is missing or hidden`];
+        }
+        const rect = element.getBoundingClientRect();
+        return rect.width >= minWidth && rect.height >= minHeight
+          ? []
+          : [`${selector} is ${rect.width}x${rect.height}; expected >= ${minWidth}x${minHeight}`];
+      });
+    },
+    { selectors: touchButtonSelectors, minWidth: minimumWidth, minHeight: minimumHeight },
+  );
+
+  expect(undersized).toEqual([]);
 }
 
 async function expectElementsNotToOverlap(

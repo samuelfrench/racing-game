@@ -27,7 +27,7 @@ Pushes to `main` run the GitHub Actions deploy workflow and publish the built ga
 
 ## Settings
 
-Use the in-game `Settings` button to tune graphics quality, camera mode, touch controls (`Auto`, `On`, `Off`), master volume, mute, reduced motion, high contrast, and control hints. Settings persist in browser storage and can be reset from the settings panel.
+Use the in-game `Settings` button to tune graphics quality, camera mode, touch controls (`Auto`, `On`, `Off`), master volume, mute, reduced motion, high contrast, and control hints. Keyboard control hints are hidden while touch controls are active. Settings persist in browser storage and can be reset from the settings panel.
 
 ## Verify
 
