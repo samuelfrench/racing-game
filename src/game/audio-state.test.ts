@@ -43,6 +43,28 @@ describe('computeRaceAudioMix', () => {
     expect(mix.skidGain).toBeLessThanOrEqual(0.34);
     expect(mix.boostGain).toBe(0);
   });
+
+  test('uses minimum-safe audio values for NaN speed and drift', () => {
+    const mix = computeRaceAudioMix({
+      phase: 'racing',
+      speed: Number.NaN,
+      drift: Number.NaN,
+      boostActive: false,
+    });
+
+    expect(mix.engineFrequency).toBe(72);
+    expect(mix.engineGain).toBe(0.045);
+    expect(mix.skidGain).toBe(0);
+    expect(mix.boostGain).toBe(0);
+  });
+});
+
+describe('createRaceAudioSnapshot', () => {
+  test('normalizes NaN and non-finite laps to lap 1', () => {
+    expect(createRaceAudioSnapshot({ phase: 'racing', lap: Number.NaN, checkpoint: 'start' }).lap).toBe(1);
+    expect(createRaceAudioSnapshot({ phase: 'racing', lap: Number.POSITIVE_INFINITY, checkpoint: 'start' }).lap).toBe(1);
+    expect(createRaceAudioSnapshot({ phase: 'racing', lap: Number.NEGATIVE_INFINITY, checkpoint: 'start' }).lap).toBe(1);
+  });
 });
 
 describe('collectRaceAudioCues', () => {

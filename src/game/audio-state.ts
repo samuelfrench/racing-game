@@ -41,9 +41,11 @@ export function computeRaceAudioMix(input: RaceAudioMixInput): RaceAudioMix {
 }
 
 export function createRaceAudioSnapshot(input: RaceAudioSnapshot): RaceAudioSnapshot {
+  const lap = Number.isFinite(input.lap) ? Math.max(1, Math.trunc(input.lap)) : 1;
+
   return {
     phase: input.phase,
-    lap: Math.max(1, Math.trunc(input.lap)),
+    lap,
     checkpoint: input.checkpoint,
   };
 }
@@ -85,8 +87,14 @@ function round(value: number, digits: number): number {
 }
 
 function clamp(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) {
+  if (Number.isNaN(value)) {
+    return min;
+  }
+  if (value === Number.POSITIVE_INFINITY) {
     return max;
+  }
+  if (value === Number.NEGATIVE_INFINITY) {
+    return min;
   }
   return Math.min(max, Math.max(min, value));
 }
