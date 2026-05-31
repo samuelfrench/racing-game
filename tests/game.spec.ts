@@ -45,6 +45,7 @@ for (const viewport of viewports) {
     await page.goto('/');
     await expect(page.locator('#game-canvas')).toBeVisible();
     await expect(page.locator('#race-status')).toBeVisible();
+    await expectRaceStatusTextToFit(page, ['READY', '3', 'GO', 'FINISH']);
     await expect(page.locator('#start-button')).toBeVisible();
     await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
     await expect.poll(() => readDebug(page).then((debug) => debug.frame)).toBeGreaterThan(3);
@@ -102,6 +103,36 @@ async function readDebug(page: Page): Promise<DebugState> {
 
 async function hasDebugState(page: Page): Promise<boolean> {
   return page.evaluate(() => Boolean(window.__racingGameDebug));
+}
+
+async function expectRaceStatusTextToFit(page: Page, labels: readonly string[]): Promise<void> {
+  for (const label of labels) {
+    const measurement = await page.evaluate((nextLabel) => {
+      const status = document.querySelector<HTMLElement>('#race-status');
+      const card = document.querySelector<HTMLElement>('.race-state-card');
+      if (!status || !card) {
+        throw new Error('Missing race status layout elements');
+      }
+
+      status.textContent = nextLabel;
+      const statusRect = status.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+
+      return {
+        label: nextLabel,
+        fits:
+          statusRect.left >= cardRect.left &&
+          statusRect.right <= cardRect.right &&
+          statusRect.width <= cardRect.width,
+        statusWidth: statusRect.width,
+        cardWidth: cardRect.width,
+      };
+    }, label);
+
+    expect(measurement, `${measurement.label} status should fit in race-state card`).toMatchObject({
+      fits: true,
+    });
+  }
 }
 
 async function countCanvasSampleColors(page: Page): Promise<number> {
