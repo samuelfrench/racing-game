@@ -42,6 +42,19 @@ button {
   background: #0a1118;
 }
 
+#speed-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 50% 56%, transparent 34%, rgb(255 79 123 / 20%) 76%, rgb(255 230 107 / 22%) 100%),
+    linear-gradient(90deg, rgb(54 241 255 / 0%) 0%, rgb(54 241 255 / 13%) 8%, transparent 20%, transparent 80%, rgb(255 230 107 / 13%) 92%, rgb(255 230 107 / 0%) 100%);
+  mix-blend-mode: screen;
+  transition: opacity 120ms linear;
+}
+
 #hud {
   position: fixed;
   inset: 18px 18px auto;

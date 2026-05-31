@@ -14,6 +14,7 @@ import {
 } from './game/race-session';
 import { createOpponentGrid, getOpponentResults, stepOpponents, type OpponentState } from './game/opponents';
 import { createDefaultTrack, sampleTrackSurface, type TrackDefinition, type TrackPoint } from './game/track';
+import { computeSpeedEffects, type SpeedEffectState } from './game/speed-effects';
 import { createInitialVehicleState, stepVehicle, type VehicleState } from './game/vehicle';
 
 type HudElements = {
@@ -27,6 +28,7 @@ type HudElements = {
   resultsList: HTMLOListElement;
   startPanel: HTMLElement;
   startButton: HTMLButtonElement;
+  speedVignette: HTMLElement;
 };
 
 type DebugState = {
@@ -39,6 +41,8 @@ type DebugState = {
   checkpoint: string;
   carX: number;
   carZ: number;
+  speedEffects: Pick<SpeedEffectState, 'intensity' | 'cameraFov' | 'vignetteOpacity' | 'streakOpacity'>;
+  trackArt: TrackArtDebug;
   opponents: readonly DebugOpponent[];
   results: readonly RaceResult[];
 };
@@ -49,6 +53,22 @@ type DebugOpponent = {
   readonly z: number;
   readonly lap: number;
   readonly finishedAtSeconds: number | null;
+};
+
+type TrackArtDebug = {
+  readonly chevrons: number;
+  readonly crowdPanels: number;
+  readonly lightMasts: number;
+  readonly speedStreaks: number;
+};
+
+type TrackArtMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+
+type AnimatedTrackArt = {
+  readonly crowdPanels: readonly TrackArtMesh[];
+  readonly lightMasts: readonly TrackArtMesh[];
+  readonly speedStreaks: readonly TrackArtMesh[];
+  readonly debug: TrackArtDebug;
 };
 
 declare global {
@@ -69,6 +89,7 @@ const hud = {
   resultsList: mustGet<HTMLOListElement>('results-list'),
   startPanel: mustGet('start-panel'),
   startButton: mustGet<HTMLButtonElement>('start-button'),
+  speedVignette: mustGet('speed-vignette'),
 } satisfies HudElements;
 
 const track = createDefaultTrack();
@@ -99,8 +120,16 @@ let elapsedSeconds = 0;
 let frame = 0;
 let lastFrameTimestamp = performance.now();
 let renderedResultsKey = '';
+let speedEffects: SpeedEffectState = computeSpeedEffects({
+  speed: 0,
+  drift: 0,
+  boostActive: false,
+  deltaSeconds: 0,
+  previousIntensity: 0,
+});
 
 const world = buildWorld(track);
+const trackArt = addTracksideObjects(world, track);
 scene.add(world);
 const car = buildCar();
 scene.add(car);
@@ -130,11 +159,21 @@ function loop(timestamp = performance.now()): void {
     session = stepRaceSession(session, deltaSeconds);
   }
 
+  const input = readInput();
+  const boostActive = session.phase === 'racing' && input.boost && input.throttle > 0 && vehicle.boostFuel > 0;
+  speedEffects = computeSpeedEffects({
+    speed: vehicle.speed,
+    drift: vehicle.drift,
+    boostActive,
+    deltaSeconds,
+    previousIntensity: speedEffects.intensity,
+  });
+
   if (session.phase === 'racing') {
     elapsedSeconds += deltaSeconds;
     const surface = sampleTrackSurface(track, vehicle.position.x, vehicle.position.z);
     vehicle = stepVehicle(vehicle, {
-      ...readInput(),
+      ...input,
       deltaSeconds,
       trackGrip: surface.grip,
     });
@@ -157,6 +196,8 @@ function loop(timestamp = performance.now()): void {
   updateOpponentMeshes();
   updateCheckpoints(progress);
   updateCamera(deltaSeconds);
+  updateSpeedEffects();
+  animateTrackArt(deltaSeconds);
   updateHud(progress, vehicle);
   updateResultsBoard();
   window.__racingGameDebug = createDebugState();
@@ -193,7 +234,6 @@ function buildWorld(trackDefinition: TrackDefinition): THREE.Group {
   addTrackMesh(group, trackDefinition);
   addCheckpointGates(group, trackDefinition);
   addSkyline(group);
-  addTracksideObjects(group, trackDefinition);
   return group;
 }
 
@@ -270,23 +310,129 @@ function addSkyline(group: THREE.Group): void {
   }
 }
 
-function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinition): void {
+function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinition): AnimatedTrackArt {
   const coneMaterial = new THREE.MeshBasicMaterial({ color: 0xff6b3a });
-  const bannerMaterial = new THREE.MeshBasicMaterial({ color: 0xff4f7b });
+  const bannerMaterials = [
+    new THREE.MeshBasicMaterial({ color: 0xff4f7b }),
+    new THREE.MeshBasicMaterial({ color: 0x36f1ff }),
+    new THREE.MeshBasicMaterial({ color: 0xffe66b }),
+  ];
+  const crowdMaterials = [
+    new THREE.MeshBasicMaterial({ color: 0x36f1ff }),
+    new THREE.MeshBasicMaterial({ color: 0xff4f7b }),
+    new THREE.MeshBasicMaterial({ color: 0xffe66b }),
+  ];
+  const mastMaterial = new THREE.MeshBasicMaterial({ color: 0xb9f7ff });
+  const lightMaterial = new THREE.MeshBasicMaterial({ color: 0xfff3ac });
+  const streakMaterial = new THREE.MeshBasicMaterial({
+    color: 0x9af7ff,
+    opacity: 0,
+    transparent: true,
+    depthWrite: false,
+  });
+
+  let chevrons = 0;
+  const crowdPanels: TrackArtMesh[] = [];
+  const lightMasts: TrackArtMesh[] = [];
+  const speedStreaks: TrackArtMesh[] = [];
 
   forEachSegment(trackDefinition.centerline, (start, end, index) => {
-    if (index % 2 === 0) {
-      const midpoint = midpointOf(start, end);
-      const heading = Math.atan2(end.x - start.x, end.z - start.z);
+    const midpoint = midpointOf(start, end);
+    const heading = Math.atan2(end.x - start.x, end.z - start.z);
+
+    if (chevrons < 14) {
+      const side = index % 2 === 0 ? 1 : -1;
+      const offset = perpendicularOffset(heading, (trackDefinition.roadWidth * 0.5 + 12) * side);
+      const chevron = new THREE.Mesh(
+        new THREE.BoxGeometry(7.2, 3.4, 0.42),
+        bannerMaterials[index % bannerMaterials.length],
+      );
+      chevron.position.set(midpoint.x + offset.x, 3.2, midpoint.z + offset.z);
+      chevron.rotation.y = heading + (side > 0 ? -0.22 : 0.22);
+      chevron.castShadow = true;
+      group.add(chevron);
+
+      const arrow = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.62, 0.5), bannerMaterials[(index + 1) % bannerMaterials.length]);
+      arrow.position.set(midpoint.x + offset.x, 3.2, midpoint.z + offset.z);
+      arrow.rotation.y = heading + Math.PI / 4 * side;
+      group.add(arrow);
+      chevrons += 1;
+    }
+
+    if (crowdPanels.length < 6 && index % 2 === 0) {
       const side = index % 4 === 0 ? 1 : -1;
-      const offset = perpendicularOffset(heading, (trackDefinition.roadWidth + 20) * side);
-      const banner = new THREE.Mesh(new THREE.BoxGeometry(18, 5, 0.8), bannerMaterial);
-      banner.position.set(midpoint.x + offset.x, 5, midpoint.z + offset.z);
-      banner.rotation.y = heading;
-      banner.castShadow = true;
-      group.add(banner);
+      const offset = perpendicularOffset(heading, (trackDefinition.roadWidth + 24) * side);
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(22, 5.4, 1), crowdMaterials[index % crowdMaterials.length]);
+      panel.position.set(midpoint.x + offset.x, 5.1, midpoint.z + offset.z);
+      panel.rotation.y = heading;
+      panel.castShadow = true;
+      group.add(panel);
+      crowdPanels.push(panel);
+    }
+
+    if (lightMasts.length < 10) {
+      const side = index % 2 === 0 ? -1 : 1;
+      const offset = perpendicularOffset(heading, (trackDefinition.roadWidth * 0.5 + 19) * side);
+      const mast = new THREE.Mesh(new THREE.BoxGeometry(0.9, 14, 0.9), mastMaterial);
+      mast.position.set(midpoint.x + offset.x, 7, midpoint.z + offset.z);
+      mast.castShadow = true;
+      group.add(mast);
+      lightMasts.push(mast);
+
+      const light = new THREE.Mesh(new THREE.BoxGeometry(5.8, 0.55, 1.1), lightMaterial);
+      light.position.set(midpoint.x + offset.x, 14.2, midpoint.z + offset.z);
+      light.rotation.y = heading;
+      group.add(light);
     }
   });
+
+  while (chevrons < 14) {
+    const point = trackDefinition.centerline[chevrons % trackDefinition.centerline.length];
+    const next = trackDefinition.centerline[(chevrons + 1) % trackDefinition.centerline.length];
+    const heading = Math.atan2(next.x - point.x, next.z - point.z);
+    const side = chevrons % 2 === 0 ? 1 : -1;
+    const offset = perpendicularOffset(heading, (trackDefinition.roadWidth * 0.5 + 16) * side);
+    const chevron = new THREE.Mesh(
+      new THREE.BoxGeometry(6.4, 3, 0.42),
+      bannerMaterials[chevrons % bannerMaterials.length],
+    );
+    chevron.position.set(point.x + offset.x, 3.2, point.z + offset.z);
+    chevron.rotation.y = heading + (side > 0 ? -0.32 : 0.32);
+    group.add(chevron);
+    chevrons += 1;
+  }
+
+  while (crowdPanels.length < 6) {
+    const index = crowdPanels.length + 2;
+    const point = trackDefinition.centerline[index % trackDefinition.centerline.length];
+    const next = trackDefinition.centerline[(index + 1) % trackDefinition.centerline.length];
+    const heading = Math.atan2(next.x - point.x, next.z - point.z);
+    const side = index % 2 === 0 ? 1 : -1;
+    const offset = perpendicularOffset(heading, (trackDefinition.roadWidth + 28) * side);
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(20, 5.2, 1), crowdMaterials[index % crowdMaterials.length]);
+    panel.position.set(point.x + offset.x, 5.1, point.z + offset.z);
+    panel.rotation.y = heading;
+    group.add(panel);
+    crowdPanels.push(panel);
+  }
+
+  while (lightMasts.length < 10) {
+    const index = lightMasts.length + 3;
+    const point = trackDefinition.centerline[index % trackDefinition.centerline.length];
+    const next = trackDefinition.centerline[(index + 1) % trackDefinition.centerline.length];
+    const heading = Math.atan2(next.x - point.x, next.z - point.z);
+    const side = index % 2 === 0 ? -1 : 1;
+    const offset = perpendicularOffset(heading, (trackDefinition.roadWidth * 0.5 + 21) * side);
+    const mast = new THREE.Mesh(new THREE.BoxGeometry(0.9, 14, 0.9), mastMaterial);
+    mast.position.set(point.x + offset.x, 7, point.z + offset.z);
+    group.add(mast);
+    lightMasts.push(mast);
+
+    const light = new THREE.Mesh(new THREE.BoxGeometry(5.8, 0.55, 1.1), lightMaterial);
+    light.position.set(point.x + offset.x, 14.2, point.z + offset.z);
+    light.rotation.y = heading;
+    group.add(light);
+  }
 
   for (let i = 0; i < 44; i += 1) {
     const point = trackDefinition.centerline[i % trackDefinition.centerline.length];
@@ -304,6 +450,26 @@ function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinitio
     cone.castShadow = true;
     group.add(cone);
   }
+
+  for (let i = 0; i < 12; i += 1) {
+    const material = streakMaterial.clone();
+    const streak = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.08, 12 + (i % 3) * 3), material);
+    streak.visible = false;
+    group.add(streak);
+    speedStreaks.push(streak);
+  }
+
+  return {
+    crowdPanels,
+    lightMasts,
+    speedStreaks,
+    debug: {
+      chevrons,
+      crowdPanels: crowdPanels.length,
+      lightMasts: lightMasts.length,
+      speedStreaks: speedStreaks.length,
+    },
+  };
 }
 
 function buildCar(bodyColor: THREE.ColorRepresentation = 0xff335f): THREE.Group {
@@ -400,6 +566,40 @@ function updateCamera(deltaSeconds: number): void {
   camera.lookAt(cameraTarget);
 }
 
+function updateSpeedEffects(): void {
+  camera.fov = speedEffects.cameraFov;
+  camera.updateProjectionMatrix();
+  hud.speedVignette.style.opacity = speedEffects.vignetteOpacity.toFixed(3);
+  trackArt.speedStreaks.forEach((streak, index) => {
+    streak.visible = speedEffects.intensity > 0.12;
+    streak.material.opacity = speedEffects.streakOpacity * (index % 3 === 0 ? 0.82 : 1);
+  });
+}
+
+function animateTrackArt(deltaSeconds: number): void {
+  const pulse = 1 + Math.sin(elapsedSeconds * 8) * 0.045 * speedEffects.roadPulse;
+  trackArt.crowdPanels.forEach((panel, index) => {
+    panel.scale.y = 1 + Math.sin(elapsedSeconds * 4.2 + index) * 0.08;
+  });
+  trackArt.lightMasts.forEach((mast, index) => {
+    mast.scale.y = pulse + (index % 2) * 0.018;
+  });
+  trackArt.speedStreaks.forEach((streak, index) => {
+    const side = index % 2 === 0 ? -1 : 1;
+    const laneOffset = 6.8 + (index % 3) * 2.6;
+    const travel = ((elapsedSeconds * (36 + index * 2) + index * 5.4) % 42) - 21;
+    const forward = new THREE.Vector3(Math.sin(vehicle.heading), 0, Math.cos(vehicle.heading));
+    const sideOffset = perpendicularOffset(vehicle.heading, laneOffset * side);
+    streak.position.set(
+      vehicle.position.x + sideOffset.x + forward.x * travel * speedEffects.intensity,
+      0.35 + (index % 2) * 0.08,
+      vehicle.position.z + sideOffset.z + forward.z * travel * speedEffects.intensity,
+    );
+    streak.rotation.y = vehicle.heading;
+    streak.scale.z = 1 + deltaSeconds * speedEffects.intensity * 2.4;
+  });
+}
+
 function updateHud(raceProgress: RaceProgress, state: VehicleState): void {
   const next = track.checkpoints[raceProgress.nextCheckpointIndex];
   hud.lap.textContent = String(raceProgress.currentLap);
@@ -445,6 +645,13 @@ function resetRace(): void {
   session = resetRaceSession(session);
   opponents = createOpponentGrid(track, progress.totalLaps);
   elapsedSeconds = 0;
+  speedEffects = computeSpeedEffects({
+    speed: 0,
+    drift: 0,
+    boostActive: false,
+    deltaSeconds: 0,
+    previousIntensity: 0,
+  });
   running = false;
   hud.startPanel.classList.remove('hidden');
   updateResultsBoard();
@@ -625,6 +832,13 @@ function createDebugState(): DebugState {
     checkpoint: next?.id ?? 'finish',
     carX: vehicle.position.x,
     carZ: vehicle.position.z,
+    speedEffects: {
+      intensity: speedEffects.intensity,
+      cameraFov: speedEffects.cameraFov,
+      vignetteOpacity: speedEffects.vignetteOpacity,
+      streakOpacity: speedEffects.streakOpacity,
+    },
+    trackArt: trackArt.debug,
     opponents: opponents.map((opponent) => ({
       id: opponent.id,
       x: opponent.position.x,

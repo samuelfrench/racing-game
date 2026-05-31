@@ -10,6 +10,18 @@ type DebugState = {
   checkpoint: string;
   carX: number;
   carZ: number;
+  speedEffects: {
+    intensity: number;
+    cameraFov: number;
+    vignetteOpacity: number;
+    streakOpacity: number;
+  };
+  trackArt: {
+    chevrons: number;
+    crowdPanels: number;
+    lightMasts: number;
+    speedStreaks: number;
+  };
   opponents: readonly {
     id: string;
     x: number;
@@ -53,6 +65,11 @@ for (const viewport of viewports) {
     await expect
       .poll(() => countCanvasSampleColors(page), { message: 'canvas has varied rendered pixels' })
       .toBeGreaterThan(4);
+    const initialDebug = await readDebug(page);
+    expect(initialDebug.trackArt.chevrons).toBeGreaterThanOrEqual(12);
+    expect(initialDebug.trackArt.crowdPanels).toBeGreaterThanOrEqual(4);
+    expect(initialDebug.trackArt.lightMasts).toBeGreaterThanOrEqual(8);
+    expect(initialDebug.trackArt.speedStreaks).toBeGreaterThanOrEqual(10);
     const before = await readDebug(page);
 
     await page.locator('#start-button').click();
@@ -75,6 +92,15 @@ for (const viewport of viewports) {
       })
       .toBeGreaterThan(8);
     await expect.poll(() => readDebug(page).then((debug) => debug.speed)).toBeGreaterThan(10);
+    await expect
+      .poll(() => readDebug(page).then((debug) => debug.speedEffects.intensity), {
+        message: 'speed effect intensity increases while driving',
+      })
+      .toBeGreaterThan(0.18);
+    const speedEffectDebug = await readDebug(page);
+    expect(speedEffectDebug.speedEffects.cameraFov).toBeGreaterThan(62);
+    expect(speedEffectDebug.speedEffects.vignetteOpacity).toBeGreaterThan(0);
+    expect(speedEffectDebug.speedEffects.streakOpacity).toBeGreaterThan(0);
     await page.keyboard.up('Shift');
     await page.keyboard.up('ArrowUp');
 
