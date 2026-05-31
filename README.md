@@ -22,6 +22,11 @@ Pushes to `main` run the GitHub Actions deploy workflow and publish the built ga
 - `Space`: handbrake drift
 - `Shift`: boost
 - `R`: reset race
+- `Escape`: open or close race settings
+
+## Settings
+
+Use the in-game `Settings` button to tune graphics quality, camera mode, master volume, mute, reduced motion, high contrast, and control hints. Settings persist in browser storage and can be reset from the settings panel.
 
 ## Verify
 

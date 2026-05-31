@@ -20,6 +20,7 @@ type DebugState = {
     available: boolean;
     started: boolean;
     contextState: string;
+    masterGain: number;
     engineFrequency: number;
     engineGain: number;
     skidGain: number;
@@ -33,6 +34,30 @@ type DebugState = {
     lightMasts: number;
     speedStreaks: number;
   };
+  settings: {
+    graphicsQuality: 'high' | 'balanced' | 'low';
+    cameraMode: 'chase' | 'far' | 'hood';
+    masterVolume: number;
+    muted: boolean;
+    reducedMotion: boolean;
+    highContrast: boolean;
+    showControlHints: boolean;
+  };
+  graphics: {
+    quality: 'high' | 'balanced' | 'low';
+    pixelRatioCap: number;
+    speedStreaksVisible: number;
+    rendererPixelRatio: number;
+  };
+  camera: {
+    mode: 'chase' | 'far' | 'hood';
+    chaseDistance: number;
+    chaseHeight: number;
+    lookAhead: number;
+    targetHeight: number;
+    fov: number;
+  };
+  controlHintsVisible: boolean;
   opponents: readonly {
     id: string;
     x: number;
@@ -150,6 +175,126 @@ for (const viewport of viewports) {
     await page.screenshot({ path: `test-results/racing-game-${viewport.name}.png`, fullPage: true });
   });
 }
+
+test('settings persist and affect race runtime debug state on desktop', async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      consoleErrors.push(message.text());
+    }
+  });
+  page.on('pageerror', (error) => {
+    consoleErrors.push(error.message);
+  });
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
+
+  await page.locator('#settings-button').click();
+  await expect(page.locator('#settings-panel')).toBeVisible();
+  await page.locator('#graphics-quality').selectOption('low');
+  await page.locator('#camera-mode').selectOption('hood');
+  await page.locator('#master-volume').fill('34');
+  await page.locator('#audio-muted').check();
+  await page.locator('#reduced-motion').check();
+  await page.locator('#high-contrast').check();
+  await page.locator('#show-control-hints').uncheck();
+
+  await expect.poll(() => readDebug(page).then((debug) => debug.settings.graphicsQuality)).toBe('low');
+  await expect.poll(() => readDebug(page).then((debug) => debug.camera.mode)).toBe('hood');
+  await expect.poll(() => readDebug(page).then((debug) => debug.settings.showControlHints)).toBe(false);
+  let debug = await readDebug(page);
+  expect(debug.settings).toMatchObject({
+    graphicsQuality: 'low',
+    cameraMode: 'hood',
+    masterVolume: 0.34,
+    muted: true,
+    reducedMotion: true,
+    highContrast: true,
+    showControlHints: false,
+  });
+  expect(debug.graphics).toMatchObject({
+    quality: 'low',
+    pixelRatioCap: 1,
+    speedStreaksVisible: 4,
+  });
+  expect(debug.trackArt.speedStreaks).toBe(12);
+  expect(debug.camera).toMatchObject({
+    mode: 'hood',
+    chaseDistance: -3.5,
+    chaseHeight: 4.2,
+    lookAhead: 72,
+    targetHeight: 3.1,
+  });
+  expect(debug.controlHintsVisible).toBe(false);
+  await expect(page.locator('#control-hints')).toBeHidden();
+  await expect(page.locator('body')).toHaveClass(/settings-high-contrast/);
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#settings-panel')).toBeHidden();
+  await page.locator('#start-button').click();
+  await expect.poll(() => readDebug(page).then((state) => state.phase)).toBe('countdown');
+  await expect.poll(() => readDebug(page).then((state) => (state.audio.available ? state.audio.contextState : 'unavailable'))).toBe('running');
+
+  await expect.poll(() => readDebug(page).then((state) => state.phase), { timeout: 5_000 }).toBe('racing');
+  await page.keyboard.down('ArrowUp');
+  await page.keyboard.down('Shift');
+  await page.waitForTimeout(900);
+  debug = await readDebug(page);
+  expect(debug.speed).toBeGreaterThan(10);
+  expect(debug.speedEffects.streakOpacity).toBe(0);
+  expect(debug.speedEffects.cameraFov).toBeLessThanOrEqual(66);
+  expect(debug.audio.masterGain).toBe(0);
+  expect(debug.graphics.rendererPixelRatio).toBeLessThanOrEqual(debug.graphics.pixelRatioCap);
+  await page.keyboard.up('Shift');
+  await page.keyboard.up('ArrowUp');
+
+  await page.reload();
+  await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized after reload' }).toBe(true);
+  debug = await readDebug(page);
+  expect(debug.settings).toMatchObject({
+    graphicsQuality: 'low',
+    cameraMode: 'hood',
+    masterVolume: 0.34,
+    muted: true,
+    reducedMotion: true,
+    highContrast: true,
+    showControlHints: false,
+  });
+  await expect(page.locator('body')).toHaveClass(/settings-high-contrast/);
+  await expect(page.locator('#control-hints')).toBeHidden();
+
+  await page.locator('#settings-button').click();
+  await page.locator('#settings-reset').click();
+  await expect.poll(() => readDebug(page).then((state) => state.settings.graphicsQuality)).toBe('high');
+  debug = await readDebug(page);
+  expect(debug.settings).toMatchObject({
+    graphicsQuality: 'high',
+    cameraMode: 'chase',
+    masterVolume: 0.82,
+    muted: false,
+    reducedMotion: false,
+    highContrast: false,
+    showControlHints: true,
+  });
+  expect(debug.graphics).toMatchObject({
+    quality: 'high',
+    pixelRatioCap: 2,
+    speedStreaksVisible: 12,
+  });
+  expect(debug.camera).toMatchObject({
+    mode: 'chase',
+    chaseDistance: 58,
+    chaseHeight: 28,
+    lookAhead: 30,
+    targetHeight: 3.6,
+  });
+  expect(debug.controlHintsVisible).toBe(true);
+  await expect(page.locator('body')).not.toHaveClass(/settings-high-contrast/);
+  await expect(page.locator('#control-hints')).toBeVisible();
+  expect(consoleErrors).toEqual([]);
+});
 
 async function readDebug(page: Page): Promise<DebugState> {
   return page.evaluate(() => {

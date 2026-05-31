@@ -37,6 +37,65 @@
         <h2>Results</h2>
         <ol id="results-list"></ol>
       </section>
+      <button id="settings-button" type="button" aria-controls="settings-panel" aria-expanded="false">
+        Settings
+      </button>
+      <section id="settings-panel" class="settings-panel hidden" aria-label="Race settings" hidden>
+        <div class="settings-header">
+          <div>
+            <p class="eyebrow">Race setup</p>
+            <h2>Settings</h2>
+          </div>
+          <button id="settings-close" type="button" aria-label="Close settings">Close</button>
+        </div>
+        <form id="settings-form" class="settings-form">
+          <label class="settings-row" for="graphics-quality">
+            <span>Graphics</span>
+            <select id="graphics-quality" name="graphicsQuality">
+              <option value="high">High</option>
+              <option value="balanced">Balanced</option>
+              <option value="low">Low</option>
+            </select>
+          </label>
+          <label class="settings-row" for="camera-mode">
+            <span>Camera</span>
+            <select id="camera-mode" name="cameraMode">
+              <option value="chase">Chase</option>
+              <option value="far">Far</option>
+              <option value="hood">Hood</option>
+            </select>
+          </label>
+          <label class="settings-row" for="master-volume">
+            <span>Volume</span>
+            <input id="master-volume" name="masterVolume" type="range" min="0" max="100" step="1" />
+          </label>
+          <label class="settings-toggle" for="audio-muted">
+            <input id="audio-muted" name="muted" type="checkbox" />
+            <span>Muted</span>
+          </label>
+          <label class="settings-toggle" for="reduced-motion">
+            <input id="reduced-motion" name="reducedMotion" type="checkbox" />
+            <span>Reduced motion</span>
+          </label>
+          <label class="settings-toggle" for="high-contrast">
+            <input id="high-contrast" name="highContrast" type="checkbox" />
+            <span>High contrast</span>
+          </label>
+          <label class="settings-toggle" for="show-control-hints">
+            <input id="show-control-hints" name="showControlHints" type="checkbox" />
+            <span>Show control hints</span>
+          </label>
+          <button id="settings-reset" type="button">Reset</button>
+        </form>
+      </section>
+      <section id="control-hints" aria-label="Control hints">
+        <span><strong>Drive</strong> W / ArrowUp</span>
+        <span><strong>Brake</strong> S / ArrowDown</span>
+        <span><strong>Steer</strong> A/D or Arrows</span>
+        <span><strong>Drift</strong> Space</span>
+        <span><strong>Boost</strong> Shift</span>
+        <span><strong>Reset</strong> R</span>
+      </section>
       <section id="start-panel" aria-label="Game start">
         <div>
           <p class="eyebrow">Arcade prototype</p>

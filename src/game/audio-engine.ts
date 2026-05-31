@@ -4,6 +4,7 @@ export type RaceAudioDebugState = {
   readonly available: boolean;
   readonly started: boolean;
   readonly contextState: string;
+  readonly masterGain: number;
   readonly engineFrequency: number;
   readonly engineGain: number;
   readonly skidGain: number;
@@ -16,6 +17,7 @@ type RaceAudioDebugStateTarget = {
   available: boolean;
   started: boolean;
   contextState: string;
+  masterGain: number;
   engineFrequency: number;
   engineGain: number;
   skidGain: number;
@@ -69,6 +71,7 @@ class BrowserRaceAudioEngine implements RaceAudioEngine {
     available: false,
     started: false,
     contextState: 'unavailable',
+    masterGain: initialMix.masterGain,
     engineFrequency: initialMix.engineFrequency,
     engineGain: initialMix.engineGain,
     skidGain: initialMix.skidGain,
@@ -166,6 +169,7 @@ class BrowserRaceAudioEngine implements RaceAudioEngine {
     this.debugState.available = available;
     this.debugState.started = this.started;
     this.debugState.contextState = available ? (this.graph?.context.state ?? 'not-started') : 'unavailable';
+    this.debugState.masterGain = this.currentMix.masterGain;
     this.debugState.engineFrequency = this.currentMix.engineFrequency;
     this.debugState.engineGain = this.currentMix.engineGain;
     this.debugState.skidGain = this.currentMix.skidGain;

@@ -26,6 +26,11 @@ button {
   font: inherit;
 }
 
+select,
+input {
+  font: inherit;
+}
+
 #app,
 #game-canvas {
   width: 100vw;
@@ -222,6 +227,194 @@ button {
   justify-self: end;
 }
 
+#settings-button {
+  position: fixed;
+  top: 118px;
+  right: 18px;
+  z-index: 5;
+  min-width: 108px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgb(54 241 255 / 48%);
+  border-radius: 6px;
+  color: #dffbff;
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: linear-gradient(135deg, rgb(8 11 15 / 82%), rgb(14 38 45 / 76%));
+  box-shadow: 0 14px 38px rgb(0 0 0 / 30%);
+  pointer-events: auto;
+  backdrop-filter: blur(16px);
+}
+
+#settings-button:hover,
+#settings-button:focus-visible,
+#settings-close:hover,
+#settings-close:focus-visible,
+#settings-reset:hover,
+#settings-reset:focus-visible {
+  border-color: rgb(255 230 107 / 78%);
+  outline: none;
+}
+
+.settings-panel {
+  position: fixed;
+  top: 164px;
+  right: 18px;
+  z-index: 5;
+  width: min(344px, calc(100vw - 36px));
+  max-height: min(560px, calc(100vh - 188px));
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid rgb(54 241 255 / 38%);
+  border-radius: 8px;
+  color: #edfaff;
+  background: linear-gradient(145deg, rgb(8 11 15 / 92%), rgb(15 32 39 / 84%));
+  box-shadow: 0 24px 70px rgb(0 0 0 / 38%);
+  pointer-events: auto;
+  backdrop-filter: blur(18px);
+}
+
+.settings-panel.hidden {
+  display: none;
+}
+
+.settings-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.settings-header h2 {
+  margin: 2px 0 0;
+  color: #fff7cc;
+  font-family: "Bahnschrift", "Aptos Display", sans-serif;
+  font-size: 1.35rem;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+#settings-close,
+#settings-reset {
+  min-height: 34px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 6px;
+  color: #f8fbff;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: rgb(255 255 255 / 8%);
+}
+
+#settings-close {
+  padding: 0 10px;
+}
+
+.settings-form {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-row,
+.settings-toggle {
+  display: grid;
+  align-items: center;
+  min-height: 38px;
+  border-top: 1px solid rgb(255 255 255 / 10%);
+  color: #dcecf2;
+  font-size: 0.9rem;
+}
+
+.settings-row {
+  grid-template-columns: minmax(92px, 1fr) minmax(126px, 150px);
+  gap: 12px;
+}
+
+.settings-toggle {
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.settings-row span,
+.settings-toggle span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-row select,
+.settings-row input[type="range"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.settings-row select {
+  min-height: 32px;
+  border: 1px solid rgb(54 241 255 / 34%);
+  border-radius: 6px;
+  color: #f8fbff;
+  background: #0b171d;
+}
+
+.settings-row input[type="range"] {
+  accent-color: #36f1ff;
+}
+
+.settings-toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #ffe66b;
+}
+
+#settings-reset {
+  width: 100%;
+  margin-top: 2px;
+  color: #051014;
+  background: #ffe66b;
+}
+
+#control-hints {
+  position: fixed;
+  left: 18px;
+  right: 18px;
+  bottom: 18px;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 8px;
+  color: #d8e8ef;
+  font-size: 0.76rem;
+  background: linear-gradient(135deg, rgb(8 11 15 / 72%), rgb(16 26 30 / 58%));
+  pointer-events: none;
+  backdrop-filter: blur(14px);
+}
+
+#control-hints.hidden {
+  display: none;
+}
+
+#control-hints span {
+  white-space: nowrap;
+}
+
+#control-hints strong {
+  color: #ffe66b;
+  font-weight: 900;
+}
+
 #start-panel {
   position: fixed;
   inset: 0;
@@ -264,6 +457,30 @@ button {
   box-shadow: 0 12px 40px rgb(54 241 255 / 28%);
 }
 
+.settings-high-contrast {
+  background: #020407;
+}
+
+.settings-high-contrast .hud-cluster,
+.settings-high-contrast .settings-panel,
+.settings-high-contrast #settings-button,
+.settings-high-contrast #control-hints,
+.settings-high-contrast .results-panel {
+  border-color: rgb(255 255 255 / 62%);
+  background: rgb(1 5 7 / 90%);
+  box-shadow: 0 0 0 1px rgb(255 230 107 / 34%), 0 18px 50px rgb(0 0 0 / 42%);
+}
+
+.settings-high-contrast .eyebrow,
+.settings-high-contrast .split-card p,
+.settings-high-contrast .speed-card small {
+  color: #ffffff;
+}
+
+.settings-reduced-motion #speed-vignette {
+  transition: none;
+}
+
 @media (max-width: 720px) {
   #hud {
     inset: 10px 10px auto;
@@ -290,6 +507,36 @@ button {
 
   #results-list li {
     grid-template-columns: 30px minmax(0, 1fr) 62px;
+  }
+
+  #settings-button {
+    top: auto;
+    right: 10px;
+    bottom: 10px;
+    min-width: 96px;
+    min-height: 36px;
+  }
+
+  .settings-panel {
+    top: auto;
+    right: 10px;
+    bottom: 56px;
+    width: calc(100vw - 20px);
+    max-height: min(470px, calc(100vh - 90px));
+    padding: 12px;
+  }
+
+  .settings-row {
+    grid-template-columns: minmax(80px, 1fr) minmax(112px, 142px);
+  }
+
+  #control-hints {
+    right: 112px;
+    bottom: 10px;
+    left: 10px;
+    justify-content: start;
+    min-height: 36px;
+    overflow: hidden;
   }
 
 }

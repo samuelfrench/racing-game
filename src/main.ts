@@ -24,6 +24,17 @@ import {
   type RaceAudioMixTarget,
   type RaceAudioSnapshotTarget,
 } from './game/audio-state';
+import {
+  applyMotionSettings,
+  DEFAULT_GAME_SETTINGS,
+  readStoredGameSettings,
+  resolveCameraProfile,
+  resolveGraphicsProfile,
+  writeStoredGameSettings,
+  type CameraMode,
+  type GameSettings,
+  type GraphicsQuality,
+} from './game/settings';
 
 type HudElements = {
   lap: HTMLElement;
@@ -39,6 +50,24 @@ type HudElements = {
   speedVignette: HTMLElement;
 };
 
+type SettingsElements = {
+  button: HTMLButtonElement;
+  panel: HTMLElement;
+  graphicsQuality: HTMLSelectElement;
+  cameraMode: HTMLSelectElement;
+  masterVolume: HTMLInputElement;
+  muted: HTMLInputElement;
+  reducedMotion: HTMLInputElement;
+  highContrast: HTMLInputElement;
+  showControlHints: HTMLInputElement;
+  close: HTMLButtonElement;
+  reset: HTMLButtonElement;
+  controlHints: HTMLElement;
+};
+
+type GraphicsProfile = ReturnType<typeof resolveGraphicsProfile>;
+type CameraProfile = ReturnType<typeof resolveCameraProfile>;
+
 type DebugState = {
   running: boolean;
   phase: RacePhase;
@@ -52,6 +81,22 @@ type DebugState = {
   speedEffects: Pick<SpeedEffectState, 'intensity' | 'cameraFov' | 'vignetteOpacity' | 'streakOpacity'>;
   audio: RaceAudioDebugState;
   trackArt: TrackArtDebug;
+  settings: GameSettings;
+  graphics: {
+    readonly quality: GraphicsQuality;
+    readonly pixelRatioCap: number;
+    readonly speedStreaksVisible: number;
+    readonly rendererPixelRatio: number;
+  };
+  camera: {
+    readonly mode: CameraMode;
+    readonly chaseDistance: number;
+    readonly chaseHeight: number;
+    readonly lookAhead: number;
+    readonly targetHeight: number;
+    readonly fov: number;
+  };
+  controlHintsVisible: boolean;
   opponents: readonly DebugOpponent[];
   results: readonly RaceResult[];
 };
@@ -100,6 +145,20 @@ const hud = {
   startButton: mustGet<HTMLButtonElement>('start-button'),
   speedVignette: mustGet('speed-vignette'),
 } satisfies HudElements;
+const settingsElements = {
+  button: mustGet<HTMLButtonElement>('settings-button'),
+  panel: mustGet('settings-panel'),
+  graphicsQuality: mustGet<HTMLSelectElement>('graphics-quality'),
+  cameraMode: mustGet<HTMLSelectElement>('camera-mode'),
+  masterVolume: mustGet<HTMLInputElement>('master-volume'),
+  muted: mustGet<HTMLInputElement>('audio-muted'),
+  reducedMotion: mustGet<HTMLInputElement>('reduced-motion'),
+  highContrast: mustGet<HTMLInputElement>('high-contrast'),
+  showControlHints: mustGet<HTMLInputElement>('show-control-hints'),
+  close: mustGet<HTMLButtonElement>('settings-close'),
+  reset: mustGet<HTMLButtonElement>('settings-reset'),
+  controlHints: mustGet('control-hints'),
+} satisfies SettingsElements;
 
 const track = createDefaultTrack();
 const renderer = new THREE.WebGLRenderer({
@@ -110,10 +169,9 @@ const renderer = new THREE.WebGLRenderer({
 });
 renderer.debug.checkShaderErrors = false;
 renderer.shadowMap.enabled = false;
-renderer.setClearColor(0x071017, 1);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x071017);
+const sceneColor = new THREE.Color();
 scene.fog = new THREE.FogExp2(0x071017, 0.0048);
 
 const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 950);
@@ -129,6 +187,9 @@ let elapsedSeconds = 0;
 let frame = 0;
 let lastFrameTimestamp = performance.now();
 let renderedResultsKey = '';
+let settings: GameSettings = readStoredGameSettings(window.localStorage);
+let graphicsProfile: GraphicsProfile = resolveGraphicsProfile(settings);
+let cameraProfile: CameraProfile = resolveCameraProfile(settings);
 let speedEffects: SpeedEffectState = computeSpeedEffects({
   speed: 0,
   drift: 0,
@@ -183,6 +244,8 @@ const followTarget = new THREE.Vector3();
 const cameraTarget = new THREE.Vector3();
 const cameraPosition = new THREE.Vector3(startPose.x, 38, startPose.z - 58);
 
+setupSettings();
+applyRuntimeSettings();
 window.__racingGameDebug = createDebugState();
 setupInput();
 setupStartButton();
@@ -201,13 +264,16 @@ function loop(timestamp = performance.now()): void {
 
   const input = readInput();
   const boostActive = session.phase === 'racing' && input.boost && input.throttle > 0 && vehicle.boostFuel > 0;
-  speedEffects = computeSpeedEffects({
-    speed: vehicle.speed,
-    drift: vehicle.drift,
-    boostActive,
-    deltaSeconds,
-    previousIntensity: speedEffects.intensity,
-  });
+  speedEffects = applyMotionSettings(
+    settings,
+    computeSpeedEffects({
+      speed: vehicle.speed,
+      drift: vehicle.drift,
+      boostActive,
+      deltaSeconds,
+      previousIntensity: speedEffects.intensity,
+    }),
+  );
 
   if (session.phase === 'racing') {
     elapsedSeconds += deltaSeconds;
@@ -596,25 +662,24 @@ function updateCheckpoints(raceProgress: RaceProgress): void {
 }
 
 function updateCamera(deltaSeconds: number): void {
-  const chaseDistance = 58;
-  const chaseHeight = 28;
   const forward = new THREE.Vector3(Math.sin(vehicle.heading), 0, Math.cos(vehicle.heading));
-  const desiredPosition = new THREE.Vector3(vehicle.position.x, chaseHeight, vehicle.position.z).addScaledVector(forward, -chaseDistance);
-  cameraPosition.lerp(desiredPosition, clamp(deltaSeconds * 5.5, 0, 1));
-  followTarget.set(vehicle.position.x, 3.6, vehicle.position.z).addScaledVector(forward, 30);
-  cameraTarget.lerp(followTarget, clamp(deltaSeconds * 7, 0, 1));
+  const desiredPosition = new THREE.Vector3(vehicle.position.x, cameraProfile.chaseHeight, vehicle.position.z).addScaledVector(forward, -cameraProfile.chaseDistance);
+  cameraPosition.lerp(desiredPosition, clamp(deltaSeconds * cameraProfile.lerpSpeed, 0, 1));
+  followTarget.set(vehicle.position.x, cameraProfile.targetHeight, vehicle.position.z).addScaledVector(forward, cameraProfile.lookAhead);
+  cameraTarget.lerp(followTarget, clamp(deltaSeconds * cameraProfile.targetLerpSpeed, 0, 1));
   camera.position.copy(cameraPosition);
   camera.lookAt(cameraTarget);
 }
 
 function updateSpeedEffects(): void {
-  if (camera.fov !== speedEffects.cameraFov) {
-    camera.fov = speedEffects.cameraFov;
+  const cameraFov = speedEffects.cameraFov + cameraProfile.fovOffset;
+  if (camera.fov !== cameraFov) {
+    camera.fov = cameraFov;
     camera.updateProjectionMatrix();
   }
   hud.speedVignette.style.opacity = speedEffects.vignetteOpacity.toFixed(3);
   trackArt.speedStreaks.forEach((streak, index) => {
-    streak.visible = speedEffects.intensity > 0.12;
+    streak.visible = speedEffects.intensity > 0.12 && index < graphicsProfile.speedStreaksVisible;
     streak.material.opacity = speedEffects.streakOpacity * (index % 3 === 0 ? 0.82 : 1);
   });
 }
@@ -657,6 +722,14 @@ function updateHud(raceProgress: RaceProgress, state: VehicleState): void {
 
 function setupInput(): void {
   window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setSettingsPanelOpen(settingsElements.panel.hidden === true);
+      return;
+    }
+    if (isSettingsFormEvent(event)) {
+      return;
+    }
     keys.add(event.key.toLowerCase());
     if (event.key.toLowerCase() === 'r') {
       resetRace();
@@ -664,8 +737,98 @@ function setupInput(): void {
   });
 
   window.addEventListener('keyup', (event) => {
+    if (isSettingsFormEvent(event)) {
+      return;
+    }
     keys.delete(event.key.toLowerCase());
   });
+}
+
+function setupSettings(): void {
+  syncSettingsControls();
+  settingsElements.button.addEventListener('click', () => {
+    setSettingsPanelOpen(settingsElements.panel.hidden === true);
+  });
+  settingsElements.close.addEventListener('click', () => {
+    setSettingsPanelOpen(false);
+  });
+  settingsElements.graphicsQuality.addEventListener('change', () => {
+    updateSettings({ graphicsQuality: settingsElements.graphicsQuality.value as GraphicsQuality });
+  });
+  settingsElements.cameraMode.addEventListener('change', () => {
+    updateSettings({ cameraMode: settingsElements.cameraMode.value as CameraMode });
+  });
+  settingsElements.masterVolume.addEventListener('input', () => {
+    updateSettings({ masterVolume: Number(settingsElements.masterVolume.value) / 100 });
+  });
+  settingsElements.muted.addEventListener('change', () => {
+    updateSettings({ muted: settingsElements.muted.checked });
+  });
+  settingsElements.reducedMotion.addEventListener('change', () => {
+    updateSettings({ reducedMotion: settingsElements.reducedMotion.checked });
+  });
+  settingsElements.highContrast.addEventListener('change', () => {
+    updateSettings({ highContrast: settingsElements.highContrast.checked });
+  });
+  settingsElements.showControlHints.addEventListener('change', () => {
+    updateSettings({ showControlHints: settingsElements.showControlHints.checked });
+  });
+  settingsElements.reset.addEventListener('click', () => {
+    settings = DEFAULT_GAME_SETTINGS;
+    writeStoredGameSettings(window.localStorage, settings);
+    syncSettingsControls();
+    applyRuntimeSettings();
+  });
+}
+
+function updateSettings(nextSettings: Partial<GameSettings>): void {
+  settings = {
+    ...settings,
+    ...nextSettings,
+  };
+  writeStoredGameSettings(window.localStorage, settings);
+  syncSettingsControls();
+  applyRuntimeSettings();
+}
+
+function syncSettingsControls(): void {
+  settingsElements.graphicsQuality.value = settings.graphicsQuality;
+  settingsElements.cameraMode.value = settings.cameraMode;
+  settingsElements.masterVolume.value = String(Math.round(settings.masterVolume * 100));
+  settingsElements.muted.checked = settings.muted;
+  settingsElements.reducedMotion.checked = settings.reducedMotion;
+  settingsElements.highContrast.checked = settings.highContrast;
+  settingsElements.showControlHints.checked = settings.showControlHints;
+}
+
+function applyRuntimeSettings(): void {
+  graphicsProfile = resolveGraphicsProfile(settings);
+  cameraProfile = resolveCameraProfile(settings);
+  document.body.classList.toggle('settings-high-contrast', settings.highContrast);
+  document.body.classList.toggle('settings-reduced-motion', settings.reducedMotion);
+  settingsElements.controlHints.classList.toggle('hidden', !settings.showControlHints);
+  settingsElements.controlHints.hidden = !settings.showControlHints;
+  applySceneColors();
+  resize();
+}
+
+function applySceneColors(): void {
+  const color = settings.highContrast ? 0x020407 : 0x071017;
+  sceneColor.setHex(color);
+  renderer.setClearColor(sceneColor, 1);
+  scene.background = sceneColor;
+  scene.fog = new THREE.FogExp2(color, settings.highContrast ? 0.0038 : 0.0048);
+}
+
+function setSettingsPanelOpen(open: boolean): void {
+  settingsElements.panel.hidden = !open;
+  settingsElements.panel.classList.toggle('hidden', !open);
+  settingsElements.button.setAttribute('aria-expanded', String(open));
+}
+
+function isSettingsFormEvent(event: KeyboardEvent): boolean {
+  const target = event.target;
+  return target instanceof HTMLElement && Boolean(target.closest('#settings-panel'));
 }
 
 function setupStartButton(): void {
@@ -698,13 +861,14 @@ function resetRace(): void {
     deltaSeconds: 0,
     previousIntensity: 0,
   });
+  speedEffects = applyMotionSettings(settings, speedEffects);
   writeCurrentAudioSnapshot(currentAudioSnapshot);
   writeRaceAudioSnapshot(lastAudioSnapshot, currentAudioSnapshot);
   audioMixInput.phase = session.phase;
   audioMixInput.speed = 0;
   audioMixInput.drift = 0;
   audioMixInput.boostActive = false;
-  audioEngine.update(writeRaceAudioMix(audioMix, audioMixInput));
+  audioEngine.update(writeSettingsAudioMix(writeRaceAudioMix(audioMix, audioMixInput)));
   running = false;
   hud.startPanel.classList.remove('hidden');
   updateResultsBoard();
@@ -715,7 +879,7 @@ function updateRaceAudio(boostActive: boolean): void {
   audioMixInput.speed = vehicle.speed;
   audioMixInput.drift = vehicle.drift;
   audioMixInput.boostActive = boostActive;
-  audioEngine.update(writeRaceAudioMix(audioMix, audioMixInput));
+  audioEngine.update(writeSettingsAudioMix(writeRaceAudioMix(audioMix, audioMixInput)));
 
   writeCurrentAudioSnapshot(currentAudioSnapshot);
   const cues = collectRaceAudioCues(lastAudioSnapshot, currentAudioSnapshot);
@@ -731,6 +895,11 @@ function writeCurrentAudioSnapshot(target: RaceAudioSnapshotTarget): RaceAudioSn
   audioSnapshotInput.lap = progress.currentLap;
   audioSnapshotInput.checkpoint = next?.id ?? 'finish';
   return writeRaceAudioSnapshot(target, audioSnapshotInput);
+}
+
+function writeSettingsAudioMix(mix: RaceAudioMixTarget): RaceAudioMixTarget {
+  mix.masterGain = settings.muted ? 0 : mix.masterGain * settings.masterVolume;
+  return mix;
 }
 
 function finishRemainingOpponents(currentOpponents: readonly OpponentState[], raceElapsedSeconds: number): readonly OpponentState[] {
@@ -890,7 +1059,7 @@ function getOpponentLaneOffset(index: number, heading: number): TrackPoint {
 function resize(): void {
   const width = window.innerWidth;
   const height = window.innerHeight;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, graphicsProfile.pixelRatioCap));
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
@@ -916,6 +1085,22 @@ function createDebugState(): DebugState {
     },
     audio: audioEngine.getDebugState(),
     trackArt: trackArt.debug,
+    settings: { ...settings },
+    graphics: {
+      quality: graphicsProfile.quality,
+      pixelRatioCap: graphicsProfile.pixelRatioCap,
+      speedStreaksVisible: graphicsProfile.speedStreaksVisible,
+      rendererPixelRatio: renderer.getPixelRatio(),
+    },
+    camera: {
+      mode: cameraProfile.mode,
+      chaseDistance: cameraProfile.chaseDistance,
+      chaseHeight: cameraProfile.chaseHeight,
+      lookAhead: cameraProfile.lookAhead,
+      targetHeight: cameraProfile.targetHeight,
+      fov: camera.fov,
+    },
+    controlHintsVisible: !settingsElements.controlHints.hidden,
     opponents: opponents.map((opponent) => ({
       id: opponent.id,
       x: opponent.position.x,
