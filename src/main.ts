@@ -49,6 +49,11 @@ import {
   shouldShowTouchControls,
   type TouchAction,
 } from './game/touch-controls';
+import {
+  getPlayerRaceDistance,
+  rankRaceParticipants,
+  type RacePositionState,
+} from './game/race-position';
 
 type HudElements = {
   lap: HTMLElement;
@@ -56,6 +61,8 @@ type HudElements = {
   speed: HTMLElement;
   checkpoint: HTMLElement;
   bestLap: HTMLElement;
+  racePosition: HTMLElement;
+  minimapCanvas: HTMLCanvasElement;
   raceStatus: HTMLElement;
   resultsPanel: HTMLElement;
   resultsList: HTMLOListElement;
@@ -123,8 +130,24 @@ type DebugState = {
     readonly activeActions: readonly TouchAction[];
     readonly input: ControlInput;
   };
+  racePosition: RacePositionState;
+  minimap: MinimapDebugState;
   opponents: readonly DebugOpponent[];
   results: readonly RaceResult[];
+};
+
+type MinimapMarkerDebug = {
+  readonly id: string;
+  readonly x: number;
+  readonly z: number;
+  readonly color: string;
+  readonly kind: 'player' | 'opponent';
+};
+
+type MinimapDebugState = {
+  readonly canvasWidth: number;
+  readonly canvasHeight: number;
+  readonly markers: readonly MinimapMarkerDebug[];
 };
 
 type DebugOpponent = {
@@ -164,6 +187,8 @@ const hud = {
   speed: mustGet('speed'),
   checkpoint: mustGet('checkpoint'),
   bestLap: mustGet('best-lap'),
+  racePosition: mustGet('race-position'),
+  minimapCanvas: mustGet<HTMLCanvasElement>('minimap-canvas'),
   raceStatus: mustGet('race-status'),
   resultsPanel: mustGet('results-panel'),
   resultsList: mustGet<HTMLOListElement>('results-list'),
@@ -199,6 +224,7 @@ const touchControls = {
 } satisfies TouchControlElements;
 
 const track = createDefaultTrack();
+const minimapContext = getMinimapContext();
 const renderer = new THREE.WebGLRenderer({
   canvas,
   antialias: true,
@@ -225,6 +251,12 @@ let opponents: readonly OpponentState[] = createOpponentGrid(track, progress.tot
 let running = false;
 let elapsedSeconds = 0;
 let frame = 0;
+let racePosition: RacePositionState = rankRaceParticipants([]);
+let minimapDebug: MinimapDebugState = {
+  canvasWidth: hud.minimapCanvas.width,
+  canvasHeight: hud.minimapCanvas.height,
+  markers: [],
+};
 let lastFrameTimestamp = performance.now();
 let renderedResultsKey = '';
 let cachedSettingsStorage: SettingsStorage | null | undefined;
@@ -288,6 +320,7 @@ const cameraPosition = new THREE.Vector3(startPose.x, 38, startPose.z - 58);
 setupSettings();
 setupTouchControls();
 applyRuntimeSettings();
+updateRaceAwareness();
 window.__racingGameDebug = createDebugState();
 setupInput();
 setupStartButton();
@@ -347,6 +380,7 @@ function loop(timestamp = performance.now()): void {
   updateSpeedEffects();
   animateTrackArt(deltaSeconds);
   updateHud(progress, vehicle);
+  updateRaceAwareness();
   updateResultsBoard();
   updateRaceAudio(boostActive);
   window.__racingGameDebug = createDebugState();
@@ -760,6 +794,192 @@ function updateHud(raceProgress: RaceProgress, state: VehicleState): void {
   hud.bestLap.textContent = raceProgress.bestLapSeconds === null ? '--' : formatSeconds(raceProgress.bestLapSeconds);
   hud.raceStatus.textContent = getRaceStatusText(session);
   hud.boostMeter.style.transform = `scaleX(${state.boostFuel.toFixed(3)})`;
+}
+
+function updateRaceAwareness(): void {
+  racePosition = rankRaceParticipants(
+    [
+      {
+        id: 'player',
+        name: 'You',
+        distance: getPlayerRaceDistance({
+          progress,
+          track,
+          position: vehicle.position,
+        }),
+        finishedAtSeconds: getRaceResultFinishSeconds('player'),
+      },
+      ...opponents.map((opponent) => ({
+        id: opponent.id,
+        name: opponent.name,
+        distance: opponent.distanceTraveled,
+        finishedAtSeconds: opponent.finishedAtSeconds,
+      })),
+    ],
+    'player',
+  );
+  hud.racePosition.textContent = `${racePosition.position}/${racePosition.total}`;
+  minimapDebug = drawMinimap();
+}
+
+function getRaceResultFinishSeconds(id: string): number | null {
+  const result = session.results.find((entry) => entry.id === id);
+  if (result) {
+    return result.finishSeconds;
+  }
+  return id === 'player' && progress.finished ? elapsedSeconds : null;
+}
+
+function drawMinimap(): MinimapDebugState {
+  const context = minimapContext;
+  const width = hud.minimapCanvas.width;
+  const height = hud.minimapCanvas.height;
+  const bounds = getMinimapBounds(width, height);
+  const markers: MinimapMarkerDebug[] = [
+    createMinimapMarker('player', vehicle.position, '#ff335f', 'player', bounds),
+    ...opponents.map((opponent) =>
+      createMinimapMarker(opponent.id, opponent.position, opponent.color, 'opponent', bounds),
+    ),
+  ];
+
+  const background = context.createLinearGradient(0, 0, width, height);
+  background.addColorStop(0, '#071018');
+  background.addColorStop(1, '#122b33');
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = background;
+  context.fillRect(0, 0, width, height);
+
+  context.save();
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+  drawMinimapTrack(context, bounds);
+  drawNextCheckpoint(context, bounds);
+  for (const marker of markers) {
+    drawMinimapMarker(context, marker);
+  }
+  context.restore();
+
+  return {
+    canvasWidth: width,
+    canvasHeight: height,
+    markers,
+  };
+}
+
+function drawMinimapTrack(context: CanvasRenderingContext2D, bounds: MinimapBounds): void {
+  context.beginPath();
+  track.centerline.forEach((point, index) => {
+    const mapPoint = worldToMinimap(point, bounds);
+    if (index === 0) {
+      context.moveTo(mapPoint.x, mapPoint.y);
+      return;
+    }
+    context.lineTo(mapPoint.x, mapPoint.y);
+  });
+  context.closePath();
+  context.strokeStyle = 'rgb(255 255 255 / 0.20)';
+  context.lineWidth = 11;
+  context.stroke();
+  context.strokeStyle = '#58e8ff';
+  context.lineWidth = 2.2;
+  context.stroke();
+}
+
+function drawNextCheckpoint(context: CanvasRenderingContext2D, bounds: MinimapBounds): void {
+  const checkpoint = track.checkpoints[progress.nextCheckpointIndex];
+  if (!checkpoint) {
+    return;
+  }
+  const point = worldToMinimap(checkpoint, bounds);
+  context.beginPath();
+  context.arc(point.x, point.y, 7.2, 0, Math.PI * 2);
+  context.strokeStyle = '#ffe66b';
+  context.lineWidth = 2;
+  context.stroke();
+}
+
+function drawMinimapMarker(context: CanvasRenderingContext2D, marker: MinimapMarkerDebug): void {
+  const x = marker.x * hud.minimapCanvas.width;
+  const y = marker.z * hud.minimapCanvas.height;
+  context.beginPath();
+  context.arc(x, y, marker.kind === 'player' ? 4.4 : 3.6, 0, Math.PI * 2);
+  context.fillStyle = marker.color;
+  context.fill();
+  context.lineWidth = marker.kind === 'player' ? 2 : 1.4;
+  context.strokeStyle = marker.kind === 'player' ? '#ffffff' : 'rgb(4 8 12 / 0.86)';
+  context.stroke();
+}
+
+type MinimapBounds = {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+};
+
+function getMinimapBounds(canvasWidth: number, canvasHeight: number): MinimapBounds {
+  const padding = track.roadWidth + track.shoulderWidth + 10;
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+
+  for (const point of track.centerline) {
+    minX = Math.min(minX, point.x);
+    maxX = Math.max(maxX, point.x);
+    minZ = Math.min(minZ, point.z);
+    maxZ = Math.max(maxZ, point.z);
+  }
+
+  minX -= padding;
+  maxX += padding;
+  minZ -= padding;
+  maxZ += padding;
+
+  const worldWidth = maxX - minX;
+  const worldHeight = maxZ - minZ;
+  const canvasRatio = canvasWidth / canvasHeight;
+  const worldRatio = worldWidth / worldHeight;
+
+  if (worldRatio > canvasRatio) {
+    const nextHeight = worldWidth / canvasRatio;
+    const extra = (nextHeight - worldHeight) * 0.5;
+    minZ -= extra;
+    maxZ += extra;
+  } else {
+    const nextWidth = worldHeight * canvasRatio;
+    const extra = (nextWidth - worldWidth) * 0.5;
+    minX -= extra;
+    maxX += extra;
+  }
+
+  return { minX, maxX, minZ, maxZ };
+}
+
+function createMinimapMarker(
+  id: string,
+  position: TrackPoint,
+  color: string,
+  kind: MinimapMarkerDebug['kind'],
+  bounds: MinimapBounds,
+): MinimapMarkerDebug {
+  const mapPoint = worldToMinimap(position, bounds);
+  return {
+    id,
+    x: clamp(mapPoint.x / hud.minimapCanvas.width, 0, 1),
+    z: clamp(mapPoint.y / hud.minimapCanvas.height, 0, 1),
+    color,
+    kind,
+  };
+}
+
+function worldToMinimap(point: TrackPoint, bounds: MinimapBounds): { readonly x: number; readonly y: number } {
+  const width = hud.minimapCanvas.width;
+  const height = hud.minimapCanvas.height;
+  return {
+    x: ((point.x - bounds.minX) / (bounds.maxX - bounds.minX)) * width,
+    y: ((point.z - bounds.minZ) / (bounds.maxZ - bounds.minZ)) * height,
+  };
 }
 
 function setupInput(): void {
@@ -1260,6 +1480,16 @@ function createDebugState(): DebugState {
       activeActions: getActiveTouchActions(touchState),
       input: resolveTouchInput(touchState),
     },
+    racePosition: {
+      position: racePosition.position,
+      total: racePosition.total,
+      participants: racePosition.participants.map((participant) => ({ ...participant })),
+    },
+    minimap: {
+      canvasWidth: minimapDebug.canvasWidth,
+      canvasHeight: minimapDebug.canvasHeight,
+      markers: minimapDebug.markers.map((marker) => ({ ...marker })),
+    },
     opponents: opponents.map((opponent) => ({
       id: opponent.id,
       x: opponent.position.x,
@@ -1290,4 +1520,12 @@ function mustGet<T extends HTMLElement = HTMLElement>(id: string): T {
     throw new Error(`Missing #${id}`);
   }
   return element as T;
+}
+
+function getMinimapContext(): CanvasRenderingContext2D {
+  const context = hud.minimapCanvas.getContext('2d');
+  if (!context) {
+    throw new Error('Missing minimap 2D context');
+  }
+  return context;
 }

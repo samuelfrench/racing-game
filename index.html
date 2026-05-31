@@ -27,9 +27,13 @@
           <span id="race-status">READY</span>
         </div>
         <div class="hud-cluster split-card">
-          <p>Checkpoint</p>
-          <strong id="checkpoint">START</strong>
-          <p>Best <span id="best-lap">--</span></p>
+          <div class="split-card-text">
+            <p>Checkpoint</p>
+            <strong id="checkpoint">START</strong>
+            <p>Best <span id="best-lap">--</span></p>
+            <p>Position <span id="race-position">1/4</span></p>
+          </div>
+          <canvas id="minimap-canvas" width="168" height="104" aria-label="Track minimap"></canvas>
         </div>
       </section>
       <section id="results-panel" class="results-panel hidden" aria-label="Race results" hidden>

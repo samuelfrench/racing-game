@@ -71,6 +71,27 @@ type DebugState = {
       boost: boolean;
     };
   };
+  racePosition: {
+    position: number;
+    total: number;
+    participants: readonly {
+      id: string;
+      name: string;
+      distance: number;
+      finishedAtSeconds: number | null;
+    }[];
+  };
+  minimap: {
+    canvasWidth: number;
+    canvasHeight: number;
+    markers: readonly {
+      id: string;
+      x: number;
+      z: number;
+      color: string;
+      kind: 'player' | 'opponent';
+    }[];
+  };
   opponents: readonly {
     id: string;
     x: number;
@@ -87,6 +108,7 @@ type DebugState = {
 
 const viewports = [
   { name: 'desktop', width: 1280, height: 720 },
+  { name: 'tablet', width: 768, height: 720 },
   { name: 'mobile', width: 390, height: 844 },
 ] as const;
 
@@ -106,20 +128,49 @@ for (const viewport of viewports) {
     await page.goto('/');
     await expect(page.locator('#game-canvas')).toBeVisible();
     await expect(page.locator('#race-status')).toBeVisible();
+    await expect(page.locator('#race-position')).toHaveText(/^[1-4]\/4$/);
+    await expect(page.locator('#minimap-canvas')).toBeVisible();
+    await expectElementToBeWithinViewport(page, '#minimap-canvas');
     await expectRaceStatusTextToFit(page, ['READY', '3', 'GO', 'FINISH']);
     await expect(page.locator('#start-button')).toBeVisible();
     await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
     await expect.poll(() => readDebug(page).then((debug) => debug.frame)).toBeGreaterThan(3);
+    await expect.poll(() => readDebug(page).then((debug) => debug.racePosition.total)).toBe(4);
+    await expect
+      .poll(() => readDebug(page).then((debug) => debug.racePosition.position), {
+        message: 'player race position is in the four-car field',
+      })
+      .toBeGreaterThanOrEqual(1);
+    await expect
+      .poll(() => readDebug(page).then((debug) => debug.racePosition.position), {
+        message: 'player race position is in the four-car field',
+      })
+      .toBeLessThanOrEqual(4);
+    await expect.poll(() => readDebug(page).then((debug) => debug.racePosition.participants.length)).toBe(4);
+    await expect.poll(() => readDebug(page).then((debug) => debug.minimap.markers.length)).toBe(4);
 
     await expect
       .poll(() => countCanvasSampleColors(page), { message: 'canvas has varied rendered pixels' })
       .toBeGreaterThan(4);
+    await expect
+      .poll(() => countMinimapSampleColors(page), { message: 'minimap has nonblank rendered pixels' })
+      .toBeGreaterThan(1);
     const initialDebug = await readDebug(page);
     expect(initialDebug.trackArt.chevrons).toBeGreaterThanOrEqual(14);
     expect(initialDebug.trackArt.crowdPanels).toBeGreaterThanOrEqual(6);
     expect(initialDebug.trackArt.lightMasts).toBeGreaterThanOrEqual(10);
     expect(initialDebug.trackArt.speedStreaks).toBeGreaterThanOrEqual(12);
+    expect(initialDebug.racePosition.participants).toHaveLength(4);
+    expect(initialDebug.minimap).toMatchObject({
+      canvasWidth: 168,
+      canvasHeight: 104,
+    });
     const before = await readDebug(page);
+
+    if (viewport.name === 'mobile') {
+      await expectElementsNotToOverlap(page, ['#minimap-canvas'], '#settings-button');
+      await expectElementsNotToOverlap(page, touchButtonSelectors, '#minimap-canvas');
+    }
 
     await page.locator('#start-button').click();
     await expect.poll(() => readDebug(page).then((debug) => (debug.audio.available ? debug.audio.contextState : 'unavailable')), {
@@ -183,6 +234,11 @@ for (const viewport of viewports) {
     expect(Math.hypot(after.carX - before.carX, after.carZ - before.carZ)).toBeGreaterThan(8);
     expect(after.lap).toBe(1);
     expect(after.checkpoint).not.toBe('');
+    expect(after.racePosition.total).toBe(4);
+    expect(after.racePosition.position).toBeGreaterThanOrEqual(1);
+    expect(after.racePosition.position).toBeLessThanOrEqual(4);
+    expect(after.racePosition.participants).toHaveLength(4);
+    expect(after.minimap.markers).toHaveLength(4);
     expect(consoleErrors).toEqual([]);
 
     await page.screenshot({ path: `test-results/racing-game-${viewport.name}.png`, fullPage: true });
@@ -648,6 +704,29 @@ async function expectElementsNotToOverlap(
   expect(overlaps).toEqual([]);
 }
 
+async function expectElementToBeWithinViewport(page: Page, selector: string): Promise<void> {
+  const overflow = await page.evaluate((targetSelector) => {
+    const element = document.querySelector<HTMLElement>(targetSelector);
+    if (!element || element.hidden) {
+      return [`${targetSelector} is missing or hidden`];
+    }
+    const rect = element.getBoundingClientRect();
+    const tolerance = 0.5;
+    return [
+      rect.left >= -tolerance ? null : `${targetSelector} left ${rect.left}`,
+      rect.top >= -tolerance ? null : `${targetSelector} top ${rect.top}`,
+      rect.right <= window.innerWidth + tolerance
+        ? null
+        : `${targetSelector} right ${rect.right} > ${window.innerWidth}`,
+      rect.bottom <= window.innerHeight + tolerance
+        ? null
+        : `${targetSelector} bottom ${rect.bottom} > ${window.innerHeight}`,
+    ].filter((message): message is string => message !== null);
+  }, selector);
+
+  expect(overflow).toEqual([]);
+}
+
 async function expectRaceStatusTextToFit(page: Page, labels: readonly string[]): Promise<void> {
   for (const label of labels) {
     const measurement = await page.evaluate((nextLabel) => {
@@ -706,6 +785,33 @@ async function countCanvasSampleColors(page: Page): Promise<number> {
           pixel,
         );
         colors.add(`${pixel[0]},${pixel[1]},${pixel[2]},${pixel[3]}`);
+      }
+    }
+
+    return colors.size;
+  });
+}
+
+async function countMinimapSampleColors(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('#minimap-canvas');
+    if (!canvas) {
+      throw new Error('Missing minimap canvas');
+    }
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Missing minimap 2D context');
+    }
+
+    const colors = new Set<string>();
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let y = 0; y < canvas.height; y += 8) {
+      for (let x = 0; x < canvas.width; x += 8) {
+        const index = (y * canvas.width + x) * 4;
+        const alpha = imageData[index + 3];
+        if (alpha > 0) {
+          colors.add(`${imageData[index]},${imageData[index + 1]},${imageData[index + 2]},${alpha}`);
+        }
       }
     }
 

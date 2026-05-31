@@ -6,10 +6,11 @@
 
 ## Next Improvements
 
-- [ ] Add a track minimap and race-position display.
+- [ ] Tune race-position/minimap styling after live-device feedback.
 
 ## Completed
 
+- [x] Add a track minimap and race-position display.
 - [x] Tune mobile touch control ergonomics after live-device feedback.
 - [x] Add mobile/touch controls after desktop controls are solid.
 - [x] Add settings for graphics quality, camera mode, controls, and accessibility.
