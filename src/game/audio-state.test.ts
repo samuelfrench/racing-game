@@ -57,6 +57,38 @@ describe('computeRaceAudioMix', () => {
     expect(mix.skidGain).toBe(0);
     expect(mix.boostGain).toBe(0);
   });
+
+  test('uses minimum-safe engine values for infinite speed', () => {
+    for (const speed of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      const mix = computeRaceAudioMix({
+        phase: 'racing',
+        speed,
+        drift: 0,
+        boostActive: false,
+      });
+
+      expect(mix.engineFrequency).toBe(72);
+      expect(mix.engineGain).toBe(0.045);
+      expect(mix.skidGain).toBe(0);
+      expect(mix.boostGain).toBe(0);
+    }
+  });
+
+  test('uses minimum-safe skid values for infinite drift', () => {
+    for (const drift of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      const mix = computeRaceAudioMix({
+        phase: 'racing',
+        speed: 0,
+        drift,
+        boostActive: false,
+      });
+
+      expect(mix.engineFrequency).toBe(72);
+      expect(mix.engineGain).toBe(0.045);
+      expect(mix.skidGain).toBe(0);
+      expect(mix.boostGain).toBe(0);
+    }
+  });
 });
 
 describe('createRaceAudioSnapshot', () => {

@@ -24,8 +24,10 @@ export type RaceAudioSnapshot = {
 };
 
 export function computeRaceAudioMix(input: RaceAudioMixInput): RaceAudioMix {
-  const speedT = clamp(Math.abs(input.speed) / 72, 0, 1);
-  const driftT = clamp(input.drift * 2.8, 0, 1);
+  const speed = Number.isFinite(input.speed) ? input.speed : 0;
+  const drift = Number.isFinite(input.drift) ? input.drift : 0;
+  const speedT = clamp(Math.abs(speed) / 72, 0, 1);
+  const driftT = clamp(drift * 2.8, 0, 1);
   const active = input.phase === 'racing' || input.phase === 'finished';
   const masterGain = active ? 0.42 : 0.16;
   const engineGain = input.phase === 'racing' ? lerp(0.045, 0.16, speedT) : 0;
