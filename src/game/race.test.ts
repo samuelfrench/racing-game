@@ -56,6 +56,8 @@ describe('race progress', () => {
     expect(progress.sectorStartedAtSeconds).toBe(10);
     expect(progress.lastSectorNumber).toBeNull();
     expect(progress.bestSectorSeconds).toEqual([null, null, null]);
+    expect(progress.completedLapSeconds).toEqual([]);
+    expect(progress.completedSectorSplits).toEqual([]);
 
     progress = updateRaceProgress(progress, checkpoints, { x: 100, z: 0 }, 17.5);
     expect(progress.lastSectorNumber).toBe(1);
@@ -75,6 +77,20 @@ describe('race progress', () => {
     expect(progress.lastSectorSeconds).toBe(6);
     expect(progress.lastSectorDeltaSeconds).toBe(-1.5);
     expect(progress.lastSectorPersonalBest).toBe(true);
+    expect(progress.completedLapSeconds).toEqual([30]);
+    expect(progress.completedSectorSplits.map((split) => ({
+      lapNumber: split.lapNumber,
+      sectorNumber: split.sectorNumber,
+      checkpointId: split.checkpointId,
+      seconds: split.seconds,
+      deltaSeconds: split.deltaSeconds,
+      personalBest: split.personalBest,
+    }))).toEqual([
+      { lapNumber: 1, sectorNumber: 1, checkpointId: 'ridge', seconds: 7.5, deltaSeconds: null, personalBest: true },
+      { lapNumber: 1, sectorNumber: 2, checkpointId: 'harbor', seconds: 8.75, deltaSeconds: null, personalBest: true },
+      { lapNumber: 1, sectorNumber: 3, checkpointId: 'start', seconds: 13.75, deltaSeconds: null, personalBest: true },
+      { lapNumber: 2, sectorNumber: 1, checkpointId: 'ridge', seconds: 6, deltaSeconds: -1.5, personalBest: true },
+    ]);
   });
 
   it('stops the active sector timer when the race finishes', () => {

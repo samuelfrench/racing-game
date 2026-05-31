@@ -62,6 +62,7 @@ import {
   type TrackFeedbackState,
 } from './game/track-feedback';
 import { createRaceTimingDisplay, type RaceTimingDisplayState } from './game/race-timing';
+import { createRaceSplitSummary, type RaceSplitSummaryState } from './game/race-summary';
 
 type HudElements = {
   lap: HTMLElement;
@@ -80,6 +81,9 @@ type HudElements = {
   raceStatus: HTMLElement;
   resultsPanel: HTMLElement;
   resultsList: HTMLOListElement;
+  splitSummary: HTMLElement;
+  lapSplits: HTMLElement;
+  sectorSplits: HTMLElement;
   startPanel: HTMLElement;
   startButton: HTMLButtonElement;
   speedVignette: HTMLElement;
@@ -148,6 +152,7 @@ type DebugState = {
   racePosition: RacePositionState;
   raceAwareness: RaceAwarenessState;
   timing: RaceTimingDisplayState;
+  splitSummary: RaceSplitSummaryState;
   minimap: MinimapDebugState;
   opponents: readonly DebugOpponent[];
   results: readonly RaceResult[];
@@ -200,6 +205,9 @@ type AnimatedTrackArt = {
 declare global {
   interface Window {
     __racingGameDebug?: DebugState;
+    __racingGameTestControls?: {
+      finishRace: () => void;
+    };
   }
 }
 
@@ -221,6 +229,9 @@ const hud = {
   raceStatus: mustGet('race-status'),
   resultsPanel: mustGet('results-panel'),
   resultsList: mustGet<HTMLOListElement>('results-list'),
+  splitSummary: mustGet('split-summary'),
+  lapSplits: mustGet('lap-splits'),
+  sectorSplits: mustGet('sector-splits'),
   startPanel: mustGet('start-panel'),
   startButton: mustGet<HTMLButtonElement>('start-button'),
   speedVignette: mustGet('speed-vignette'),
@@ -284,6 +295,7 @@ let frame = 0;
 let racePosition: RacePositionState = rankRaceParticipants([]);
 let raceAwareness: RaceAwarenessState = createRaceAwareness(racePosition);
 let timingDisplay: RaceTimingDisplayState = createRaceTimingDisplay(progress, track.checkpoints.length, elapsedSeconds);
+let splitSummaryDisplay: RaceSplitSummaryState = createRaceSplitSummary(progress);
 let minimapDebug: MinimapDebugState = {
   canvasWidth: hud.minimapCanvas.width,
   canvasHeight: hud.minimapCanvas.height,
@@ -357,6 +369,7 @@ updateRaceAwareness();
 window.__racingGameDebug = createDebugState();
 setupInput();
 setupStartButton();
+setupDevTestControls();
 resize();
 window.addEventListener('resize', handleResize);
 requestAnimationFrame(loop);
@@ -411,6 +424,7 @@ function loop(timestamp = performance.now()): void {
       opponents = finishRemainingOpponents(opponents, elapsedSeconds);
       session = finishRace(session, [playerResult, ...getOpponentResults(opponents)]);
       running = false;
+      updateTouchControlsVisibility();
     }
   }
   if (session.phase !== 'racing') {
@@ -1341,16 +1355,18 @@ function setSettingsPanelOpen(open: boolean): void {
 }
 
 function updateControlHintsVisibility(): void {
-  const visible = settings.showControlHints && !touchControlsVisible;
+  const visible = !isResultsVisible() && settings.showControlHints && !touchControlsVisible;
   settingsElements.controlHints.classList.toggle('hidden', !visible);
   settingsElements.controlHints.hidden = !visible;
 }
 
 function updateTouchControlsVisibility(): void {
-  touchControlsVisible = shouldShowTouchControls(settings.touchControlsMode, {
-    coarsePointer: window.matchMedia('(pointer: coarse)').matches,
-    viewportWidth: window.innerWidth,
-  });
+  touchControlsVisible =
+    !isResultsVisible() &&
+    shouldShowTouchControls(settings.touchControlsMode, {
+      coarsePointer: window.matchMedia('(pointer: coarse)').matches,
+      viewportWidth: window.innerWidth,
+    });
   touchControls.overlay.hidden = !touchControlsVisible;
   touchControls.overlay.classList.toggle('hidden', !touchControlsVisible);
   document.body.classList.toggle('touch-controls-visible', touchControlsVisible);
@@ -1406,6 +1422,107 @@ function setupStartButton(): void {
   });
 }
 
+function setupDevTestControls(): void {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+
+  window.__racingGameTestControls = {
+    finishRace: finishRaceForTest,
+  };
+}
+
+function finishRaceForTest(): void {
+  const replay = createDeterministicFinishedProgress();
+  progress = replay.progress;
+  elapsedSeconds = replay.elapsedSeconds;
+  vehicle = {
+    ...vehicle,
+    position: {
+      x: track.checkpoints[0]?.x ?? startPose.x,
+      z: track.checkpoints[0]?.z ?? startPose.z,
+    },
+    heading: startPose.heading,
+    speed: 0,
+  };
+  opponents = finishRemainingOpponents(opponents, elapsedSeconds);
+  session = finishRace(session, [
+    {
+      id: 'player',
+      name: 'You',
+      finishSeconds: elapsedSeconds,
+    },
+    ...getOpponentResults(opponents),
+  ]);
+  running = false;
+  trackFeedback = createTrackFeedbackState();
+  hud.startPanel.classList.add('hidden');
+  updateTouchControlsVisibility();
+  updateHud(progress, vehicle);
+  updateRaceAwareness();
+  updateResultsBoard();
+  updateRaceAudio(false);
+  window.__racingGameDebug = createDebugState();
+}
+
+function createDeterministicFinishedProgress(): {
+  readonly progress: RaceProgress;
+  readonly elapsedSeconds: number;
+} {
+  let replayProgress = createRaceProgress(track.checkpoints, progress.totalLaps);
+  let replayElapsedSeconds = 0;
+  const startCheckpoint = track.checkpoints[0];
+
+  if (!startCheckpoint) {
+    return {
+      progress: replayProgress,
+      elapsedSeconds: replayElapsedSeconds,
+    };
+  }
+
+  replayProgress = updateRaceProgress(
+    replayProgress,
+    track.checkpoints,
+    startCheckpoint,
+    replayElapsedSeconds,
+  );
+
+  for (let lapIndex = 0; lapIndex < replayProgress.totalLaps; lapIndex += 1) {
+    for (let checkpointIndex = 1; checkpointIndex < track.checkpoints.length; checkpointIndex += 1) {
+      replayElapsedSeconds += getDeterministicSectorSeconds(lapIndex, checkpointIndex - 1);
+      replayProgress = updateRaceProgress(
+        replayProgress,
+        track.checkpoints,
+        track.checkpoints[checkpointIndex],
+        replayElapsedSeconds,
+      );
+    }
+
+    replayElapsedSeconds += getDeterministicSectorSeconds(lapIndex, track.checkpoints.length - 1);
+    replayProgress = updateRaceProgress(
+      replayProgress,
+      track.checkpoints,
+      startCheckpoint,
+      replayElapsedSeconds,
+    );
+  }
+
+  return {
+    progress: replayProgress,
+    elapsedSeconds: replayElapsedSeconds,
+  };
+}
+
+function getDeterministicSectorSeconds(lapIndex: number, sectorIndex: number): number {
+  const sectorDurations = [
+    [7.42, 8.18, 7.86, 9.12, 8.48],
+    [7.06, 7.94, 7.68, 8.88, 8.16],
+    [7.18, 8.04, 7.52, 9.02, 8.22],
+  ] as const;
+  const lapDurations = sectorDurations[lapIndex % sectorDurations.length];
+  return lapDurations[sectorIndex % lapDurations.length];
+}
+
 function readInput(): ControlInput {
   return mergeControlInputs(resolveInputFromKeys(keys), resolveTouchInput(touchState));
 }
@@ -1437,6 +1554,7 @@ function resetRace(): void {
   running = false;
   hud.startPanel.classList.remove('hidden');
   updateResultsBoard();
+  updateTouchControlsVisibility();
 }
 
 function updateRaceAudio(boostActive: boolean): void {
@@ -1491,9 +1609,13 @@ function finishRemainingOpponents(currentOpponents: readonly OpponentState[], ra
 }
 
 function updateResultsBoard(): void {
+  splitSummaryDisplay = createRaceSplitSummary(progress);
+
   if (session.phase !== 'finished' || session.results.length === 0) {
     hud.resultsPanel.classList.add('hidden');
     hud.resultsPanel.hidden = true;
+    document.body.classList.remove('race-results-visible');
+    hideSplitSummary();
     if (renderedResultsKey !== '') {
       hud.resultsList.replaceChildren();
       renderedResultsKey = '';
@@ -1501,7 +1623,11 @@ function updateResultsBoard(): void {
     return;
   }
 
-  const resultsKey = session.results.map((result) => `${result.id}:${result.finishSeconds.toFixed(3)}`).join('|');
+  const resultsKey = [
+    session.results.map((result) => `${result.id}:${result.finishSeconds.toFixed(3)}`).join('|'),
+    `laps:${progress.completedLapSeconds.length}`,
+    `sectors:${progress.completedSectorSplits.length}`,
+  ].join('|');
   if (resultsKey === renderedResultsKey) {
     return;
   }
@@ -1520,9 +1646,77 @@ function updateResultsBoard(): void {
   });
 
   hud.resultsList.replaceChildren(...items);
+  renderSplitSummary(splitSummaryDisplay);
   hud.resultsPanel.hidden = false;
   hud.resultsPanel.classList.remove('hidden');
+  document.body.classList.add('race-results-visible');
   renderedResultsKey = resultsKey;
+}
+
+function isResultsVisible(): boolean {
+  return session.phase === 'finished' && session.results.length > 0;
+}
+
+function renderSplitSummary(summary: RaceSplitSummaryState): void {
+  if (!summary.visible) {
+    hideSplitSummary();
+    return;
+  }
+
+  const lapRows = summary.lapRows.map((row) => {
+    const item = document.createElement('div');
+    const label = document.createElement('span');
+    const time = document.createElement('strong');
+
+    item.className = 'lap-split-row';
+    item.dataset.tone = row.isBest ? 'best' : 'normal';
+    label.textContent = row.lapLabel;
+    time.textContent = row.timeLabel;
+    item.append(label, time);
+
+    if (row.isBest) {
+      const badge = document.createElement('span');
+      badge.className = 'lap-split-badge';
+      badge.textContent = 'Best';
+      item.append(badge);
+    }
+
+    return item;
+  });
+
+  const sectorRows = summary.sectorRows.map((row) => {
+    const item = document.createElement('div');
+    const label = document.createElement('span');
+    const chips = document.createElement('div');
+
+    item.className = 'sector-split-row';
+    label.className = 'sector-split-lap';
+    label.textContent = row.lapLabel;
+    chips.className = 'sector-chip-list';
+
+    for (const sector of row.sectors) {
+      const chip = document.createElement('span');
+      chip.className = 'sector-chip';
+      chip.dataset.tone = sector.tone;
+      chip.textContent = `${sector.sectorLabel} ${sector.timeLabel}`;
+      chips.append(chip);
+    }
+
+    item.append(label, chips);
+    return item;
+  });
+
+  hud.lapSplits.replaceChildren(...lapRows);
+  hud.sectorSplits.replaceChildren(...sectorRows);
+  hud.splitSummary.hidden = false;
+  hud.splitSummary.classList.remove('hidden');
+}
+
+function hideSplitSummary(): void {
+  hud.splitSummary.hidden = true;
+  hud.splitSummary.classList.add('hidden');
+  hud.lapSplits.replaceChildren();
+  hud.sectorSplits.replaceChildren();
 }
 
 function getRaceStatusText(currentSession: RaceSession, feedback: TrackFeedbackState): string {
@@ -1685,6 +1879,7 @@ function createDebugState(): DebugState {
     },
     raceAwareness: { ...raceAwareness },
     timing: { ...timingDisplay },
+    splitSummary: cloneSplitSummary(splitSummaryDisplay),
     minimap: {
       canvasWidth: minimapDebug.canvasWidth,
       canvasHeight: minimapDebug.canvasHeight,
@@ -1701,6 +1896,18 @@ function createDebugState(): DebugState {
       finishedAtSeconds: opponent.finishedAtSeconds,
     })),
     results: session.results.map((result) => ({ ...result })),
+  };
+}
+
+function cloneSplitSummary(summary: RaceSplitSummaryState): RaceSplitSummaryState {
+  return {
+    visible: summary.visible,
+    lapRows: summary.lapRows.map((row) => ({ ...row })),
+    sectorRows: summary.sectorRows.map((row) => ({
+      lapNumber: row.lapNumber,
+      lapLabel: row.lapLabel,
+      sectors: row.sectors.map((sector) => ({ ...sector })),
+    })),
   };
 }
 

@@ -8,6 +8,15 @@ export type RaceCheckpoint = RacePoint & {
   readonly radius: number;
 };
 
+export type CompletedSectorSplit = {
+  readonly lapNumber: number;
+  readonly sectorNumber: number;
+  readonly checkpointId: string;
+  readonly seconds: number;
+  readonly deltaSeconds: number | null;
+  readonly personalBest: boolean;
+};
+
 export type RaceProgress = {
   readonly totalLaps: number;
   readonly currentLap: number;
@@ -22,6 +31,8 @@ export type RaceProgress = {
   readonly lastSectorDeltaSeconds: number | null;
   readonly lastSectorPersonalBest: boolean;
   readonly bestSectorSeconds: readonly (number | null)[];
+  readonly completedLapSeconds: readonly number[];
+  readonly completedSectorSplits: readonly CompletedSectorSplit[];
   readonly finished: boolean;
 };
 
@@ -40,6 +51,8 @@ export function createRaceProgress(checkpoints: readonly RaceCheckpoint[], total
     lastSectorDeltaSeconds: null,
     lastSectorPersonalBest: false,
     bestSectorSeconds: checkpoints.map(() => null),
+    completedLapSeconds: [],
+    completedSectorSplits: [],
     finished: checkpoints.length === 0,
   };
 }
@@ -98,6 +111,7 @@ export function updateRaceProgress(
     lapStartedAtSeconds: finished ? progress.lapStartedAtSeconds : elapsedSeconds,
     lastLapSeconds: lapSeconds,
     bestLapSeconds,
+    completedLapSeconds: [...sectorProgress.completedLapSeconds, lapSeconds],
     sectorStartedAtSeconds: finished ? null : elapsedSeconds,
     finished,
   };
@@ -131,6 +145,17 @@ function recordCompletedSector(
     lastSectorDeltaSeconds: sectorDeltaSeconds,
     lastSectorPersonalBest: personalBest,
     bestSectorSeconds,
+    completedSectorSplits: [
+      ...progress.completedSectorSplits,
+      {
+        lapNumber: progress.currentLap,
+        sectorNumber,
+        checkpointId,
+        seconds: sectorSeconds,
+        deltaSeconds: sectorDeltaSeconds,
+        personalBest,
+      },
+    ],
   };
 }
 

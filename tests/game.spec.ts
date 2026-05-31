@@ -108,6 +108,25 @@ type DebugState = {
     sectorDeltaLabel: string;
     sectorDeltaTone: 'neutral' | 'best' | 'faster' | 'slower' | 'matched';
   };
+  splitSummary: {
+    visible: boolean;
+    lapRows: readonly {
+      lapNumber: number;
+      lapLabel: string;
+      timeLabel: string;
+      isBest: boolean;
+    }[];
+    sectorRows: readonly {
+      lapNumber: number;
+      lapLabel: string;
+      sectors: readonly {
+        sectorNumber: number;
+        sectorLabel: string;
+        timeLabel: string;
+        tone: 'best' | 'normal';
+      }[];
+    }[];
+  };
   minimap: {
     canvasWidth: number;
     canvasHeight: number;
@@ -138,6 +157,14 @@ type DebugState = {
     finishSeconds: number;
   }[];
 };
+
+declare global {
+  interface Window {
+    __racingGameTestControls?: {
+      finishRace: () => void;
+    };
+  }
+}
 
 const viewports = [
   { name: 'desktop', width: 1280, height: 720 },
@@ -330,6 +357,71 @@ test('timing HUD stays in bounds at tablet breakpoint edge widths', async ({ pag
     await expectElementToBeWithinViewport(page, '#sector-time');
     await expectElementToBeWithinViewport(page, '#sector-delta');
     await expectElementsNotToOverlap(page, ['#lap-time', '#sector-label', '#sector-time', '#sector-delta'], '#minimap-canvas');
+  }
+
+  expect(consoleErrors).toEqual([]);
+});
+
+test('post-race lap and sector split summary shows results, debug match, reset, and layout', async ({ page }) => {
+  const consoleErrors = collectConsoleErrors(page);
+  const summaryViewports = [
+    { name: 'desktop', width: 1280, height: 720 },
+    { name: 'tablet', width: 768, height: 720 },
+    { name: 'narrow tablet', width: 721, height: 720 },
+    { name: 'mobile', width: 390, height: 844 },
+    { name: 'narrow mobile', width: 320, height: 844 },
+    { name: 'short mobile', width: 320, height: 568 },
+  ] as const;
+
+  for (const viewport of summaryViewports) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.goto('/');
+    await expect.poll(() => hasDebugState(page), { message: `debug state is initialized on ${viewport.name}` }).toBe(true);
+    await expect(page.locator('#split-summary'), `split summary exists on ${viewport.name}`).toHaveCount(1);
+    await expect(page.locator('#lap-splits'), `lap split container exists on ${viewport.name}`).toHaveCount(1);
+    await expect(page.locator('#sector-splits'), `sector split container exists on ${viewport.name}`).toHaveCount(1);
+    await expect(page.locator('#split-summary')).toBeHidden();
+    await expect(page.locator('#lap-splits')).toBeEmpty();
+    await expect(page.locator('#sector-splits')).toBeEmpty();
+    await expect.poll(() => readDebug(page).then((debug) => debug.splitSummary.visible)).toBe(false);
+    await expect
+      .poll(() => page.evaluate(() => typeof window.__racingGameTestControls?.finishRace), {
+        message: 'dev-only finishRace test control is installed',
+      })
+      .toBe('function');
+
+    await page.evaluate(() => window.__racingGameTestControls?.finishRace());
+    await expect.poll(() => readDebug(page).then((debug) => debug.phase)).toBe('finished');
+    await expect(page.locator('#results-panel')).toBeVisible();
+    await expect(page.locator('#results-list li')).toHaveCount(4);
+    await expect(page.locator('#split-summary')).toBeVisible();
+    await expect(page.locator('#lap-splits')).toContainText('L1');
+    await expect(page.locator('#lap-splits')).toContainText('L2');
+    await expect(page.locator('#sector-splits')).toContainText('S1');
+    await expect(page.locator('#sector-splits')).toContainText('S2');
+    await expect.poll(() => readDebug(page).then((debug) => debug.splitSummary.visible)).toBe(true);
+    await expect.poll(() => readSplitSummaryHudMatch(page)).toBe(true);
+    await expectElementToBeWithinViewport(page, '#results-panel');
+    await expectElementToBeWithinViewport(page, '#split-summary');
+    await expectElementsNotToOverlap(page, ['#results-panel'], '#hud');
+
+    if (viewport.width <= 420) {
+      await expect(page.locator('#touch-controls')).toBeHidden();
+      await expectElementsNotToOverlap(page, touchButtonSelectors, '#results-panel');
+      await expectElementsNotToOverlap(page, touchButtonSelectors, '#split-summary');
+    }
+
+    await page.keyboard.press('r');
+    await expect(page.locator('#results-panel')).toBeHidden();
+    await expect(page.locator('#split-summary')).toBeHidden();
+    await expect(page.locator('#lap-splits')).toBeEmpty();
+    await expect(page.locator('#sector-splits')).toBeEmpty();
+    await expect.poll(() => readDebug(page).then((debug) => debug.splitSummary.visible)).toBe(false);
+    await expect.poll(() => readDebug(page).then((debug) => debug.splitSummary.lapRows.length)).toBe(0);
+    await expect.poll(() => readDebug(page).then((debug) => debug.splitSummary.sectorRows.length)).toBe(0);
+    if (viewport.width <= 420) {
+      await expect(page.locator('#touch-controls')).toBeVisible();
+    }
   }
 
   expect(consoleErrors).toEqual([]);
@@ -723,6 +815,47 @@ async function readTimingHudMatch(page: Page): Promise<boolean> {
       debug.timing.currentSectorTimeLabel === text('#sector-time') &&
       debug.timing.sectorDeltaLabel === text('#sector-delta') &&
       debug.timing.sectorDeltaTone === sectorDelta?.getAttribute('data-tone')
+    );
+  });
+}
+
+async function readSplitSummaryHudMatch(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const debug = window.__racingGameDebug;
+    if (!debug) {
+      throw new Error('Missing racing game debug state');
+    }
+
+    const lapText = document.querySelector('#lap-splits')?.textContent ?? '';
+    const sectorText = document.querySelector('#sector-splits')?.textContent ?? '';
+    const sectorChips = Array.from(document.querySelectorAll<HTMLElement>('#sector-splits .sector-chip')).map(
+      (chip) => ({
+        text: chip.textContent ?? '',
+        tone: chip.getAttribute('data-tone'),
+      }),
+    );
+    const expectedSectorCount = debug.splitSummary.sectorRows.reduce(
+      (count, row) => count + row.sectors.length,
+      0,
+    );
+
+    return (
+      debug.splitSummary.visible &&
+      debug.splitSummary.lapRows.every(
+        (row) => lapText.includes(row.lapLabel) && lapText.includes(row.timeLabel),
+      ) &&
+      debug.splitSummary.sectorRows.every((row) => sectorText.includes(row.lapLabel)) &&
+      debug.splitSummary.sectorRows.every((row) =>
+        row.sectors.every((sector) =>
+          sectorChips.some(
+            (chip) =>
+              chip.text.includes(sector.sectorLabel) &&
+              chip.text.includes(sector.timeLabel) &&
+              chip.tone === sector.tone,
+          ),
+        ),
+      ) &&
+      sectorChips.length === expectedSectorCount
     );
   });
 }

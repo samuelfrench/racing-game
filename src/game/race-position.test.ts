@@ -32,6 +32,8 @@ function raceProgress(overrides: Partial<RaceProgress> = {}): RaceProgress {
     lastSectorDeltaSeconds: null,
     lastSectorPersonalBest: false,
     bestSectorSeconds: [],
+    completedLapSeconds: [],
+    completedSectorSplits: [],
     finished: false,
     ...overrides,
   };
