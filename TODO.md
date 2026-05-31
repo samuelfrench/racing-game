@@ -6,10 +6,12 @@
 
 ## Next Improvements
 
+- [ ] Add track boundary recovery and wrong-way feedback.
 - [ ] Tune race-position/minimap styling after live-device feedback.
 
 ## Completed
 
+- [x] Tune opponent launch pacing after race-position HUD feedback.
 - [x] Add a track minimap and race-position display.
 - [x] Tune mobile touch control ergonomics after live-device feedback.
 - [x] Add mobile/touch controls after desktop controls are solid.

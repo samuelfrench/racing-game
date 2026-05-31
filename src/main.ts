@@ -155,6 +155,8 @@ type DebugOpponent = {
   readonly x: number;
   readonly z: number;
   readonly lap: number;
+  readonly speed: number;
+  readonly targetSpeed: number;
   readonly finishedAtSeconds: number | null;
 };
 
@@ -1495,6 +1497,8 @@ function createDebugState(): DebugState {
       x: opponent.position.x,
       z: opponent.position.z,
       lap: opponent.lap,
+      speed: opponent.speed,
+      targetSpeed: opponent.targetSpeed,
       finishedAtSeconds: opponent.finishedAtSeconds,
     })),
     results: session.results.map((result) => ({ ...result })),

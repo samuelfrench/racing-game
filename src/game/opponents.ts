@@ -11,6 +11,8 @@ export type OpponentState = {
   readonly distanceTraveled: number;
   readonly lap: number;
   readonly speed: number;
+  readonly targetSpeed: number;
+  readonly acceleration: number;
   readonly totalLaps: number;
   readonly finishedAtSeconds: number | null;
 };
@@ -19,14 +21,15 @@ type OpponentConfig = {
   readonly id: string;
   readonly name: string;
   readonly color: string;
-  readonly speed: number;
+  readonly targetSpeed: number;
+  readonly acceleration: number;
   readonly startDistance: number;
 };
 
 const opponentConfigs: readonly OpponentConfig[] = [
-  { id: 'opponent-1', name: 'Mara Voss', color: '#ff4d6d', speed: 58, startDistance: 0 },
-  { id: 'opponent-2', name: 'Timo Reyes', color: '#49c6ff', speed: 56, startDistance: -8 },
-  { id: 'opponent-3', name: 'Juno Park', color: '#f5d547', speed: 54, startDistance: -16 },
+  { id: 'opponent-1', name: 'Mara Voss', color: '#ff4d6d', targetSpeed: 56, acceleration: 18, startDistance: 0 },
+  { id: 'opponent-2', name: 'Timo Reyes', color: '#49c6ff', targetSpeed: 54, acceleration: 17, startDistance: -8 },
+  { id: 'opponent-3', name: 'Juno Park', color: '#f5d547', targetSpeed: 52, acceleration: 16, startDistance: -16 },
 ];
 
 export function createOpponentGrid(track: TrackDefinition, totalLaps: number): readonly OpponentState[] {
@@ -43,7 +46,9 @@ export function createOpponentGrid(track: TrackDefinition, totalLaps: number): r
       heading: sample.heading,
       distanceTraveled: config.startDistance,
       lap: 1,
-      speed: config.speed,
+      speed: 0,
+      targetSpeed: config.targetSpeed,
+      acceleration: config.acceleration,
       totalLaps: laps,
       finishedAtSeconds: null,
     };
@@ -66,12 +71,13 @@ export function stepOpponents(
     }
 
     const finishDistance = opponent.totalLaps * lapLength;
-    const nextDistance = opponent.distanceTraveled + opponent.speed * delta;
+    const nextSpeed = approach(opponent.speed, opponent.targetSpeed, opponent.acceleration * delta);
+    const nextDistance = opponent.distanceTraveled + nextSpeed * delta;
 
     if (nextDistance >= finishDistance) {
       const sample = sampleTrackCenterlineAtDistance(track, finishDistance);
       const overshoot = nextDistance - finishDistance;
-      const finishedAtSeconds = opponent.speed <= 0 ? elapsedSeconds : elapsedSeconds - overshoot / opponent.speed;
+      const finishedAtSeconds = nextSpeed <= 0 ? elapsedSeconds : elapsedSeconds - overshoot / nextSpeed;
 
       return {
         ...opponent,
@@ -79,6 +85,7 @@ export function stepOpponents(
         heading: sample.heading,
         distanceTraveled: finishDistance,
         lap: opponent.totalLaps,
+        speed: nextSpeed,
         finishedAtSeconds,
       };
     }
@@ -91,6 +98,7 @@ export function stepOpponents(
       heading: sample.heading,
       distanceTraveled: nextDistance,
       lap: getLapForDistance(nextDistance, lapLength, opponent.totalLaps),
+      speed: nextSpeed,
     };
   });
 }
@@ -123,4 +131,16 @@ function cloneOpponent(opponent: OpponentState): OpponentState {
 function getLapForDistance(distance: number, lapLength: number, totalLaps: number): number {
   const lap = Math.floor(Math.max(0, distance) / lapLength) + 1;
   return Math.min(totalLaps, lap);
+}
+
+function approach(current: number, target: number, maximumStep: number): number {
+  if (current < target) {
+    return Math.min(target, current + maximumStep);
+  }
+
+  if (current > target) {
+    return Math.max(target, current - maximumStep);
+  }
+
+  return target;
 }

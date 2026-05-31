@@ -22,6 +22,14 @@ describe('opponents', () => {
     }
   });
 
+  it('starts opponents from rest with target speeds', () => {
+    const opponents = createOpponentGrid(createDefaultTrack(), 1);
+
+    expect(opponents.map((opponent) => opponent.speed)).toEqual([0, 0, 0]);
+    expect(opponents.map((opponent) => opponent.targetSpeed)).toEqual([56, 54, 52]);
+    expect(opponents.every((opponent) => opponent.acceleration > 0)).toBe(true);
+  });
+
   it('advances opponents along the track only while racing', () => {
     const track = createDefaultTrack();
     const opponents = createOpponentGrid(track, 1);
@@ -38,6 +46,28 @@ describe('opponents', () => {
       expect(racing[i].position).not.toEqual(opponents[i].position);
     }
     expect(opponents.map((opponent) => opponent.distanceTraveled)).toEqual([0, -8, -16]);
+  });
+
+  it('ramps opponent speed during the first racing second instead of jumping to target speed', () => {
+    const track = createDefaultTrack();
+    const opponents = createOpponentGrid(track, 1);
+    const racing = stepOpponents(opponents, track, 1, true, 1);
+
+    expect(racing[0].speed).toBeGreaterThan(0);
+    expect(racing[0].speed).toBeLessThan(racing[0].targetSpeed);
+    expect(racing[0].distanceTraveled).toBeLessThan(racing[0].targetSpeed);
+  });
+
+  it('ramps opponents toward their target pace over repeated racing steps', () => {
+    const track = createDefaultTrack();
+    let opponents = createOpponentGrid(track, 1);
+
+    for (let i = 0; i < 240; i += 1) {
+      opponents = stepOpponents(opponents, track, 1 / 60, true, (i + 1) / 60);
+    }
+
+    expect(opponents[0].speed).toBeGreaterThan(50);
+    expect(opponents[0].speed).toBeLessThanOrEqual(opponents[0].targetSpeed);
   });
 
   it('finishes opponents and returns sorted finished results', () => {

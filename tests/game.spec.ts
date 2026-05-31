@@ -97,6 +97,8 @@ type DebugState = {
     x: number;
     z: number;
     lap: number;
+    speed: number;
+    targetSpeed: number;
     finishedAtSeconds: number | null;
   }[];
   results: readonly {
@@ -407,6 +409,9 @@ test('touch controls drive the race on mobile', async ({ page }) => {
     })
     .toBeGreaterThan(8);
   await expect.poll(() => readDebug(page).then((state) => state.speed)).toBeGreaterThan(10);
+  const launchDebug = await readDebug(page);
+  expect(launchDebug.racePosition.position).toBeLessThanOrEqual(3);
+  expect(launchDebug.opponents.some((opponent) => opponent.speed < opponent.targetSpeed)).toBe(true);
 
   await holdTouchButton(page, '#touch-left', 22);
   await holdTouchButton(page, '#touch-drift', 23);
