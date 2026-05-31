@@ -296,6 +296,64 @@ test('settings persist and affect race runtime debug state on desktop', async ({
   expect(consoleErrors).toEqual([]);
 });
 
+test('settings use defaults and stay interactive when browser storage is blocked', async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      consoleErrors.push(message.text());
+    }
+  });
+  page.on('pageerror', (error) => {
+    consoleErrors.push(error.message);
+  });
+
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('localStorage is blocked', 'SecurityError');
+      },
+    });
+  });
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  await expect(page.locator('#game-canvas')).toBeVisible();
+  await expect.poll(() => hasDebugState(page), { message: 'debug state initializes without localStorage' }).toBe(true);
+
+  let debug = await readDebug(page);
+  expect(debug.settings).toMatchObject({
+    graphicsQuality: 'high',
+    cameraMode: 'chase',
+    masterVolume: 0.82,
+    muted: false,
+    reducedMotion: false,
+    highContrast: false,
+    showControlHints: true,
+  });
+
+  await page.locator('#settings-button').click();
+  await expect(page.locator('#settings-panel')).toBeVisible();
+  await page.locator('#graphics-quality').selectOption('low');
+  await page.locator('#audio-muted').check();
+  await expect.poll(() => readDebug(page).then((state) => state.settings.graphicsQuality)).toBe('low');
+  await expect.poll(() => readDebug(page).then((state) => state.settings.muted)).toBe(true);
+
+  await page.locator('#settings-reset').click();
+  await expect.poll(() => readDebug(page).then((state) => state.settings.graphicsQuality)).toBe('high');
+  debug = await readDebug(page);
+  expect(debug.settings).toMatchObject({
+    graphicsQuality: 'high',
+    cameraMode: 'chase',
+    masterVolume: 0.82,
+    muted: false,
+    reducedMotion: false,
+    highContrast: false,
+    showControlHints: true,
+  });
+  expect(consoleErrors).toEqual([]);
+});
+
 async function readDebug(page: Page): Promise<DebugState> {
   return page.evaluate(() => {
     const debug = window.__racingGameDebug;

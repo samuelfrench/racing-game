@@ -34,6 +34,7 @@ import {
   type CameraMode,
   type GameSettings,
   type GraphicsQuality,
+  type SettingsStorage,
 } from './game/settings';
 
 type HudElements = {
@@ -187,7 +188,8 @@ let elapsedSeconds = 0;
 let frame = 0;
 let lastFrameTimestamp = performance.now();
 let renderedResultsKey = '';
-let settings: GameSettings = readStoredGameSettings(window.localStorage);
+let cachedSettingsStorage: SettingsStorage | null | undefined;
+let settings: GameSettings = readStoredGameSettings(getSettingsStorage());
 let graphicsProfile: GraphicsProfile = resolveGraphicsProfile(settings);
 let cameraProfile: CameraProfile = resolveCameraProfile(settings);
 let speedEffects: SpeedEffectState = computeSpeedEffects({
@@ -775,10 +777,28 @@ function setupSettings(): void {
   });
   settingsElements.reset.addEventListener('click', () => {
     settings = DEFAULT_GAME_SETTINGS;
-    writeStoredGameSettings(window.localStorage, settings);
+    persistSettings();
     syncSettingsControls();
     applyRuntimeSettings();
   });
+}
+
+function getSettingsStorage(): SettingsStorage | null {
+  if (cachedSettingsStorage !== undefined) {
+    return cachedSettingsStorage;
+  }
+
+  try {
+    cachedSettingsStorage = window.localStorage;
+  } catch {
+    cachedSettingsStorage = null;
+  }
+
+  return cachedSettingsStorage;
+}
+
+function persistSettings(): void {
+  writeStoredGameSettings(getSettingsStorage(), settings);
 }
 
 function updateSettings(nextSettings: Partial<GameSettings>): void {
@@ -786,7 +806,7 @@ function updateSettings(nextSettings: Partial<GameSettings>): void {
     ...settings,
     ...nextSettings,
   };
-  writeStoredGameSettings(window.localStorage, settings);
+  persistSettings();
   syncSettingsControls();
   applyRuntimeSettings();
 }
