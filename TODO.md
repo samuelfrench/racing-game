@@ -6,10 +6,11 @@
 
 ## Next Improvements
 
-- [ ] Tune race-position/minimap styling after live-device feedback.
+- [ ] Add lap split and sector timing feedback.
 
 ## Completed
 
+- [x] Tune race-position/minimap styling after live-device feedback.
 - [x] Add track boundary recovery and wrong-way feedback.
 - [x] Tune opponent launch pacing after race-position HUD feedback.
 - [x] Add a track minimap and race-position display.

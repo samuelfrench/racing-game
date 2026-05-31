@@ -14,6 +14,7 @@ import {
 } from './game/race-session';
 import { createOpponentGrid, getOpponentResults, stepOpponents, type OpponentState } from './game/opponents';
 import { createDefaultTrack, sampleTrackSurface, type TrackDefinition, type TrackPoint } from './game/track';
+import { getTrackLapLength, projectPointOntoTrack, type TrackProjection } from './game/track-progress';
 import { computeSpeedEffects, type SpeedEffectState } from './game/speed-effects';
 import { createInitialVehicleState, stepVehicle, type VehicleState } from './game/vehicle';
 import { createRaceAudioEngine, type RaceAudioDebugState } from './game/audio-engine';
@@ -54,6 +55,7 @@ import {
   rankRaceParticipants,
   type RacePositionState,
 } from './game/race-position';
+import { createRaceAwareness, type RaceAwarenessState } from './game/race-awareness';
 import {
   createTrackFeedbackState,
   updateTrackFeedback,
@@ -67,6 +69,7 @@ type HudElements = {
   checkpoint: HTMLElement;
   bestLap: HTMLElement;
   racePosition: HTMLElement;
+  raceGap: HTMLElement;
   minimapCanvas: HTMLCanvasElement;
   raceStatus: HTMLElement;
   resultsPanel: HTMLElement;
@@ -137,6 +140,7 @@ type DebugState = {
     readonly input: ControlInput;
   };
   racePosition: RacePositionState;
+  raceAwareness: RaceAwarenessState;
   minimap: MinimapDebugState;
   opponents: readonly DebugOpponent[];
   results: readonly RaceResult[];
@@ -148,11 +152,15 @@ type MinimapMarkerDebug = {
   readonly z: number;
   readonly color: string;
   readonly kind: 'player' | 'opponent';
+  readonly rank: number;
+  readonly heading: number;
+  readonly label: string;
 };
 
 type MinimapDebugState = {
   readonly canvasWidth: number;
   readonly canvasHeight: number;
+  readonly progressRatio: number;
   readonly markers: readonly MinimapMarkerDebug[];
 };
 
@@ -196,6 +204,7 @@ const hud = {
   checkpoint: mustGet('checkpoint'),
   bestLap: mustGet('best-lap'),
   racePosition: mustGet('race-position'),
+  raceGap: mustGet('race-gap'),
   minimapCanvas: mustGet<HTMLCanvasElement>('minimap-canvas'),
   raceStatus: mustGet('race-status'),
   resultsPanel: mustGet('results-panel'),
@@ -261,9 +270,11 @@ let running = false;
 let elapsedSeconds = 0;
 let frame = 0;
 let racePosition: RacePositionState = rankRaceParticipants([]);
+let raceAwareness: RaceAwarenessState = createRaceAwareness(racePosition);
 let minimapDebug: MinimapDebugState = {
   canvasWidth: hud.minimapCanvas.width,
   canvasHeight: hud.minimapCanvas.height,
+  progressRatio: 0,
   markers: [],
 };
 let lastFrameTimestamp = performance.now();
@@ -838,7 +849,10 @@ function updateRaceAwareness(): void {
     ],
     'player',
   );
-  hud.racePosition.textContent = `${racePosition.position}/${racePosition.total}`;
+  raceAwareness = createRaceAwareness(racePosition);
+  hud.racePosition.textContent = raceAwareness.positionLabel;
+  hud.racePosition.dataset.tone = raceAwareness.tone;
+  hud.raceGap.textContent = raceAwareness.gapLabel;
   minimapDebug = drawMinimap();
 }
 
@@ -855,12 +869,10 @@ function drawMinimap(): MinimapDebugState {
   const width = hud.minimapCanvas.width;
   const height = hud.minimapCanvas.height;
   const bounds = getMinimapBounds(width, height);
-  const markers: MinimapMarkerDebug[] = [
-    createMinimapMarker('player', vehicle.position, '#ff335f', 'player', bounds),
-    ...opponents.map((opponent) =>
-      createMinimapMarker(opponent.id, opponent.position, opponent.color, 'opponent', bounds),
-    ),
-  ];
+  const lapLength = getTrackLapLength(track);
+  const playerProjection = projectPointOntoTrack(track, vehicle.position);
+  const progressRatio = lapLength > 0 ? clamp(playerProjection.distanceAlongLap / lapLength, 0, 1) : 0;
+  const markers = createMinimapMarkers(bounds);
 
   const background = context.createLinearGradient(0, 0, width, height);
   background.addColorStop(0, '#071018');
@@ -873,6 +885,8 @@ function drawMinimap(): MinimapDebugState {
   context.lineCap = 'round';
   context.lineJoin = 'round';
   drawMinimapTrack(context, bounds);
+  drawMinimapProgress(context, bounds, playerProjection);
+  drawStartFinishStripe(context, bounds);
   drawNextCheckpoint(context, bounds);
   for (const marker of markers) {
     drawMinimapMarker(context, marker);
@@ -882,6 +896,7 @@ function drawMinimap(): MinimapDebugState {
   return {
     canvasWidth: width,
     canvasHeight: height,
+    progressRatio,
     markers,
   };
 }
@@ -905,6 +920,63 @@ function drawMinimapTrack(context: CanvasRenderingContext2D, bounds: MinimapBoun
   context.stroke();
 }
 
+function drawMinimapProgress(
+  context: CanvasRenderingContext2D,
+  bounds: MinimapBounds,
+  projection: TrackProjection,
+): void {
+  const projectedPoint = getProjectionPoint(projection);
+  if (!projectedPoint) {
+    return;
+  }
+
+  context.beginPath();
+  const start = worldToMinimap(track.centerline[0], bounds);
+  context.moveTo(start.x, start.y);
+
+  for (let i = 1; i <= projection.segmentIndex; i += 1) {
+    const point = worldToMinimap(track.centerline[i], bounds);
+    context.lineTo(point.x, point.y);
+  }
+
+  const end = worldToMinimap(projectedPoint, bounds);
+  context.lineTo(end.x, end.y);
+  context.strokeStyle = 'rgb(255 230 107 / 0.86)';
+  context.lineWidth = 4.2;
+  context.stroke();
+}
+
+function drawStartFinishStripe(context: CanvasRenderingContext2D, bounds: MinimapBounds): void {
+  const start = track.centerline[0];
+  const next = track.centerline[1];
+  if (!start || !next) {
+    return;
+  }
+
+  const heading = Math.atan2(next.x - start.x, next.z - start.z);
+  const halfStripe = track.roadWidth * 0.34;
+  const stripeStartOffset = perpendicularOffset(heading, -halfStripe);
+  const stripeEndOffset = perpendicularOffset(heading, halfStripe);
+  const stripeStart = worldToMinimap({ x: start.x + stripeStartOffset.x, z: start.z + stripeStartOffset.z }, bounds);
+  const stripeEnd = worldToMinimap({ x: start.x + stripeEndOffset.x, z: start.z + stripeEndOffset.z }, bounds);
+
+  context.beginPath();
+  context.moveTo(stripeStart.x, stripeStart.y);
+  context.lineTo(stripeEnd.x, stripeEnd.y);
+  context.strokeStyle = '#ffffff';
+  context.lineWidth = 3.4;
+  context.stroke();
+
+  context.beginPath();
+  context.moveTo(stripeStart.x, stripeStart.y);
+  context.lineTo(stripeEnd.x, stripeEnd.y);
+  context.strokeStyle = '#111820';
+  context.setLineDash([3, 3]);
+  context.lineWidth = 1.2;
+  context.stroke();
+  context.setLineDash([]);
+}
+
 function drawNextCheckpoint(context: CanvasRenderingContext2D, bounds: MinimapBounds): void {
   const checkpoint = track.checkpoints[progress.nextCheckpointIndex];
   if (!checkpoint) {
@@ -921,13 +993,34 @@ function drawNextCheckpoint(context: CanvasRenderingContext2D, bounds: MinimapBo
 function drawMinimapMarker(context: CanvasRenderingContext2D, marker: MinimapMarkerDebug): void {
   const x = marker.x * hud.minimapCanvas.width;
   const y = marker.z * hud.minimapCanvas.height;
+  if (marker.kind === 'player') {
+    context.save();
+    context.translate(x, y);
+    context.rotate(Math.PI - marker.heading);
+    context.beginPath();
+    context.moveTo(0, -7.4);
+    context.lineTo(5.2, 5.6);
+    context.lineTo(0, 2.8);
+    context.lineTo(-5.2, 5.6);
+    context.closePath();
+    context.fillStyle = marker.color;
+    context.fill();
+    context.lineWidth = 1.8;
+    context.strokeStyle = '#ffffff';
+    context.stroke();
+    context.restore();
+    drawMinimapMarkerLabel(context, marker, x, y, 10);
+    return;
+  }
+
   context.beginPath();
-  context.arc(x, y, marker.kind === 'player' ? 4.4 : 3.6, 0, Math.PI * 2);
+  context.arc(x, y, 3.8, 0, Math.PI * 2);
   context.fillStyle = marker.color;
   context.fill();
-  context.lineWidth = marker.kind === 'player' ? 2 : 1.4;
-  context.strokeStyle = marker.kind === 'player' ? '#ffffff' : 'rgb(4 8 12 / 0.86)';
+  context.lineWidth = 1.4;
+  context.strokeStyle = 'rgb(4 8 12 / 0.86)';
   context.stroke();
+  drawMinimapMarkerLabel(context, marker, x, y, 7.5);
 }
 
 type MinimapBounds = {
@@ -976,13 +1069,43 @@ function getMinimapBounds(canvasWidth: number, canvasHeight: number): MinimapBou
   return { minX, maxX, minZ, maxZ };
 }
 
-function createMinimapMarker(
-  id: string,
-  position: TrackPoint,
-  color: string,
-  kind: MinimapMarkerDebug['kind'],
-  bounds: MinimapBounds,
-): MinimapMarkerDebug {
+function createMinimapMarkers(bounds: MinimapBounds): readonly MinimapMarkerDebug[] {
+  return racePosition.participants.map((participant, index) => {
+    if (participant.id === 'player') {
+      return createMinimapMarker({
+        id: participant.id,
+        position: vehicle.position,
+        color: '#ff335f',
+        kind: 'player',
+        rank: index + 1,
+        heading: vehicle.heading,
+        bounds,
+      });
+    }
+
+    const opponent = opponents.find((entry) => entry.id === participant.id);
+    return createMinimapMarker({
+      id: participant.id,
+      position: opponent?.position ?? { x: 0, z: 0 },
+      color: opponent?.color ?? '#a8f7ff',
+      kind: 'opponent',
+      rank: index + 1,
+      heading: opponent?.heading ?? 0,
+      bounds,
+    });
+  });
+}
+
+function createMinimapMarker(input: {
+  readonly id: string;
+  readonly position: TrackPoint;
+  readonly color: string;
+  readonly kind: MinimapMarkerDebug['kind'];
+  readonly rank: number;
+  readonly heading: number;
+  readonly bounds: MinimapBounds;
+}): MinimapMarkerDebug {
+  const { id, position, color, kind, rank, heading, bounds } = input;
   const mapPoint = worldToMinimap(position, bounds);
   return {
     id,
@@ -990,6 +1113,39 @@ function createMinimapMarker(
     z: clamp(mapPoint.y / hud.minimapCanvas.height, 0, 1),
     color,
     kind,
+    rank,
+    heading: Number.isFinite(heading) ? heading : 0,
+    label: `P${rank}`,
+  };
+}
+
+function drawMinimapMarkerLabel(
+  context: CanvasRenderingContext2D,
+  marker: MinimapMarkerDebug,
+  x: number,
+  y: number,
+  offset: number,
+): void {
+  context.font = '700 8px Bahnschrift, Aptos, sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.lineWidth = 2.4;
+  context.strokeStyle = 'rgb(2 8 12 / 0.9)';
+  context.fillStyle = marker.rank === 1 ? '#ffe66b' : '#f8fbff';
+  context.strokeText(marker.label, x, y - offset);
+  context.fillText(marker.label, x, y - offset);
+}
+
+function getProjectionPoint(projection: TrackProjection): TrackPoint | null {
+  const start = track.centerline[projection.segmentIndex];
+  const end = track.centerline[(projection.segmentIndex + 1) % track.centerline.length];
+  if (!start || !end) {
+    return null;
+  }
+
+  return {
+    x: start.x + (end.x - start.x) * projection.t,
+    z: start.z + (end.z - start.z) * projection.t,
   };
 }
 
@@ -1507,9 +1663,11 @@ function createDebugState(): DebugState {
       total: racePosition.total,
       participants: racePosition.participants.map((participant) => ({ ...participant })),
     },
+    raceAwareness: { ...raceAwareness },
     minimap: {
       canvasWidth: minimapDebug.canvasWidth,
       canvasHeight: minimapDebug.canvasHeight,
+      progressRatio: minimapDebug.progressRatio,
       markers: minimapDebug.markers.map((marker) => ({ ...marker })),
     },
     opponents: opponents.map((opponent) => ({

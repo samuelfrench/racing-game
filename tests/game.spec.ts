@@ -88,15 +88,25 @@ type DebugState = {
       finishedAtSeconds: number | null;
     }[];
   };
+  raceAwareness: {
+    positionLabel: string;
+    gapLabel: string;
+    gapMeters: number | null;
+    tone: 'leader' | 'chasing' | 'midfield' | 'last';
+  };
   minimap: {
     canvasWidth: number;
     canvasHeight: number;
+    progressRatio: number;
     markers: readonly {
       id: string;
       x: number;
       z: number;
       color: string;
       kind: 'player' | 'opponent';
+      rank: number;
+      heading: number;
+      label: string;
     }[];
   };
   opponents: readonly {
@@ -137,7 +147,8 @@ for (const viewport of viewports) {
     await page.goto('/');
     await expect(page.locator('#game-canvas')).toBeVisible();
     await expect(page.locator('#race-status')).toBeVisible();
-    await expect(page.locator('#race-position')).toHaveText(/^[1-4]\/4$/);
+    await expect(page.locator('#race-position')).toHaveText(/^P[1-4]\/4$/);
+    await expect(page.locator('#race-gap')).toHaveText(/^(?:LEAD|GAP) \d+m$|^FINISH$/);
     await expect(page.locator('#minimap-canvas')).toBeVisible();
     await expectElementToBeWithinViewport(page, '#minimap-canvas');
     await expectRaceStatusTextToFit(page, ['READY', '3', 'GO', 'FINISH', 'OFF TRACK', 'WRONG WAY', 'RECOVERING']);
@@ -145,6 +156,18 @@ for (const viewport of viewports) {
     await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
     await expect.poll(() => readDebug(page).then((debug) => debug.frame)).toBeGreaterThan(3);
     await expect.poll(() => readDebug(page).then((debug) => debug.racePosition.total)).toBe(4);
+    await expect.poll(() => readDebug(page).then((debug) => debug.raceAwareness.positionLabel)).toMatch(/^P[1-4]\/4$/);
+    await expect
+      .poll(() => readDebug(page).then((debug) => debug.raceAwareness.gapLabel))
+      .toMatch(/^(?:LEAD|GAP) \d+m$|^FINISH$/);
+    await expect
+      .poll(async () => {
+        const debug = await readDebug(page);
+        const hudGap = (await page.locator('#race-gap').textContent())?.trim();
+        return debug.raceAwareness.gapLabel === hudGap;
+      })
+      .toBe(true);
+    await expect.poll(() => readDebug(page).then((debug) => debug.minimap.progressRatio)).toBeGreaterThanOrEqual(0);
     await expect
       .poll(() => readDebug(page).then((debug) => debug.racePosition.position), {
         message: 'player race position is in the four-car field',
@@ -174,6 +197,9 @@ for (const viewport of viewports) {
       canvasWidth: 168,
       canvasHeight: 104,
     });
+    expect(initialDebug.minimap.markers.every((marker) => marker.rank >= 1)).toBe(true);
+    expect(initialDebug.minimap.markers.every((marker) => Number.isFinite(marker.heading))).toBe(true);
+    expect(initialDebug.minimap.markers.map((marker) => marker.label)).toContain('P1');
     const before = await readDebug(page);
 
     if (viewport.name === 'mobile') {

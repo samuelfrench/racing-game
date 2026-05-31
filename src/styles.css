@@ -172,6 +172,7 @@ input {
   display: grid;
   gap: 4px;
   min-width: 0;
+  width: 100%;
 }
 
 .split-card strong {
@@ -182,10 +183,54 @@ input {
   white-space: nowrap;
 }
 
+.race-awareness-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.race-awareness-line p {
+  min-width: 0;
+}
+
+.race-awareness-line strong {
+  justify-self: end;
+}
+
 #race-position {
+  display: inline-block;
+  min-width: 4.4ch;
   color: #ffe66b;
+  font-size: 1.28rem;
+  font-weight: 900;
+  line-height: 0.95;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#race-position[data-tone="leader"] {
+  color: #ffe66b;
+}
+
+#race-position[data-tone="chasing"] {
+  color: #36f1ff;
+}
+
+#race-position[data-tone="midfield"] {
+  color: #fff7cc;
+}
+
+#race-position[data-tone="last"] {
+  color: #ff9bb3;
+}
+
+#race-gap {
+  color: #f8fbff;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 #minimap-canvas {
@@ -613,6 +658,14 @@ input {
     gap: 8px;
   }
 
+  .split-card-text {
+    gap: 3px;
+  }
+
+  #race-position {
+    font-size: 1.08rem;
+  }
+
   #minimap-canvas {
     width: 126px;
     height: 78px;
@@ -692,6 +745,10 @@ input {
   .split-card {
     grid-template-columns: minmax(0, 1fr) 132px;
     gap: 8px;
+  }
+
+  #race-position {
+    font-size: 1.16rem;
   }
 
   #minimap-canvas {
