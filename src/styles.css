@@ -1,0 +1,189 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    "Aptos",
+    "Segoe UI",
+    system-ui,
+    sans-serif;
+  background: #080b0f;
+  color: #f8fbff;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #080b0f;
+}
+
+button {
+  font: inherit;
+}
+
+#app,
+#game-canvas {
+  width: 100vw;
+  height: 100vh;
+}
+
+#app {
+  position: relative;
+  isolation: isolate;
+}
+
+#game-canvas {
+  display: block;
+  background: #0a1118;
+}
+
+#hud {
+  position: fixed;
+  inset: 18px 18px auto;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 160px minmax(150px, 0.7fr);
+  gap: 12px;
+  pointer-events: none;
+}
+
+.hud-cluster {
+  min-height: 86px;
+  padding: 14px 16px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgb(8 11 15 / 78%), rgb(15 28 38 / 62%));
+  box-shadow: 0 18px 50px rgb(0 0 0 / 28%);
+  backdrop-filter: blur(16px);
+}
+
+.eyebrow,
+.split-card p,
+.speed-card small {
+  margin: 0;
+  color: #a8f7ff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.hud-primary h1 {
+  margin: 2px 0 10px;
+  font-size: clamp(1.6rem, 3vw, 2.7rem);
+  line-height: 0.95;
+}
+
+.muted {
+  color: #9aa9b7;
+}
+
+.meter {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 13%);
+}
+
+.meter span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #36f1ff, #ffe66b, #ff4f7b);
+  transform-origin: left center;
+  transform: scaleX(1);
+}
+
+.speed-card {
+  display: grid;
+  place-items: center;
+  align-content: center;
+}
+
+#speed {
+  font-family: "Bahnschrift", "Aptos Display", sans-serif;
+  font-size: clamp(2.8rem, 6vw, 4.8rem);
+  font-weight: 900;
+  line-height: 0.82;
+  font-variant-numeric: tabular-nums;
+}
+
+.split-card {
+  display: grid;
+  gap: 4px;
+  align-content: center;
+}
+
+.split-card strong {
+  overflow: hidden;
+  color: #fff7cc;
+  font-size: 1.08rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#start-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background:
+    radial-gradient(circle at 50% 70%, rgb(54 241 255 / 12%), transparent 36%),
+    linear-gradient(180deg, rgb(4 8 12 / 50%), rgb(4 8 12 / 85%));
+}
+
+#start-panel.hidden {
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+#start-panel > div {
+  width: min(560px, 100%);
+  padding: 20px;
+  border-left: 4px solid #36f1ff;
+}
+
+#start-panel h2 {
+  margin: 8px 0 18px;
+  font-size: clamp(2.1rem, 7vw, 4.9rem);
+  line-height: 0.9;
+}
+
+#start-button {
+  min-height: 46px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 6px;
+  color: #051014;
+  font-weight: 900;
+  cursor: pointer;
+  background: #36f1ff;
+  box-shadow: 0 12px 40px rgb(54 241 255 / 28%);
+}
+
+@media (max-width: 720px) {
+  #hud {
+    inset: 10px 10px auto;
+    grid-template-columns: 1fr 100px;
+  }
+
+  .split-card {
+    grid-column: 1 / -1;
+    min-height: 62px;
+  }
+
+  .hud-cluster {
+    min-height: 70px;
+    padding: 10px 12px;
+  }
+
+}

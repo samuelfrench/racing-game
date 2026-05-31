@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A polished Three.js arcade racing game with drifting, boost, checkpoints, and lap timing."
+    />
+    <title>Neon Harbor GP</title>
+  </head>
+  <body>
+    <main id="app">
+      <section id="hud" aria-label="Race telemetry">
+        <div class="hud-cluster hud-primary">
+          <p class="eyebrow">Neon Harbor GP</p>
+          <h1>Lap <span id="lap">1</span><span class="muted">/3</span></h1>
+          <div class="meter" aria-label="Boost">
+            <span id="boost-meter"></span>
+          </div>
+        </div>
+        <div class="hud-cluster speed-card">
+          <span id="speed">000</span>
+          <small>mph</small>
+        </div>
+        <div class="hud-cluster split-card">
+          <p>Checkpoint</p>
+          <strong id="checkpoint">START</strong>
+          <p>Best <span id="best-lap">--</span></p>
+        </div>
+      </section>
+      <section id="start-panel" aria-label="Game start">
+        <div>
+          <p class="eyebrow">Arcade prototype</p>
+          <h2>Hit the checkpoints. Keep it clean. Use boost out of corners.</h2>
+          <button id="start-button" type="button">Start race</button>
+        </div>
+      </section>
+      <canvas id="game-canvas" aria-label="Three dimensional racing game"></canvas>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
