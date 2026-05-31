@@ -61,13 +61,19 @@ import {
   updateTrackFeedback,
   type TrackFeedbackState,
 } from './game/track-feedback';
+import { createRaceTimingDisplay, type RaceTimingDisplayState } from './game/race-timing';
 
 type HudElements = {
   lap: HTMLElement;
   boostMeter: HTMLElement;
   speed: HTMLElement;
   checkpoint: HTMLElement;
+  lapTime: HTMLElement;
   bestLap: HTMLElement;
+  sectorLabelText: HTMLElement;
+  sectorLabel: HTMLElement;
+  sectorTime: HTMLElement;
+  sectorDelta: HTMLElement;
   racePosition: HTMLElement;
   raceGap: HTMLElement;
   minimapCanvas: HTMLCanvasElement;
@@ -141,6 +147,7 @@ type DebugState = {
   };
   racePosition: RacePositionState;
   raceAwareness: RaceAwarenessState;
+  timing: RaceTimingDisplayState;
   minimap: MinimapDebugState;
   opponents: readonly DebugOpponent[];
   results: readonly RaceResult[];
@@ -202,7 +209,12 @@ const hud = {
   boostMeter: mustGet('boost-meter'),
   speed: mustGet('speed'),
   checkpoint: mustGet('checkpoint'),
+  lapTime: mustGet('lap-time'),
   bestLap: mustGet('best-lap'),
+  sectorLabelText: mustGet('sector-label-text'),
+  sectorLabel: mustGet('sector-label'),
+  sectorTime: mustGet('sector-time'),
+  sectorDelta: mustGet('sector-delta'),
   racePosition: mustGet('race-position'),
   raceGap: mustGet('race-gap'),
   minimapCanvas: mustGet<HTMLCanvasElement>('minimap-canvas'),
@@ -271,6 +283,7 @@ let elapsedSeconds = 0;
 let frame = 0;
 let racePosition: RacePositionState = rankRaceParticipants([]);
 let raceAwareness: RaceAwarenessState = createRaceAwareness(racePosition);
+let timingDisplay: RaceTimingDisplayState = createRaceTimingDisplay(progress, track.checkpoints.length, elapsedSeconds);
 let minimapDebug: MinimapDebugState = {
   canvasWidth: hud.minimapCanvas.width,
   canvasHeight: hud.minimapCanvas.height,
@@ -822,7 +835,14 @@ function updateHud(raceProgress: RaceProgress, state: VehicleState): void {
   hud.lap.textContent = String(raceProgress.currentLap);
   hud.speed.textContent = Math.max(0, Math.round(Math.abs(state.speed) * 2.237)).toString().padStart(3, '0');
   hud.checkpoint.textContent = next ? next.id.toUpperCase() : 'FINISH';
-  hud.bestLap.textContent = raceProgress.bestLapSeconds === null ? '--' : formatSeconds(raceProgress.bestLapSeconds);
+  timingDisplay = createRaceTimingDisplay(raceProgress, track.checkpoints.length, elapsedSeconds);
+  hud.lapTime.textContent = timingDisplay.currentLapLabel;
+  hud.bestLap.textContent = timingDisplay.bestLapLabel;
+  hud.sectorLabelText.textContent = timingDisplay.currentSectorLabelText;
+  hud.sectorLabel.textContent = timingDisplay.currentSectorLabel;
+  hud.sectorTime.textContent = timingDisplay.currentSectorTimeLabel;
+  hud.sectorDelta.textContent = timingDisplay.sectorDeltaLabel;
+  hud.sectorDelta.dataset.tone = timingDisplay.sectorDeltaTone;
   hud.raceStatus.textContent = getRaceStatusText(session, trackFeedback);
   hud.boostMeter.style.transform = `scaleX(${state.boostFuel.toFixed(3)})`;
 }
@@ -1664,6 +1684,7 @@ function createDebugState(): DebugState {
       participants: racePosition.participants.map((participant) => ({ ...participant })),
     },
     raceAwareness: { ...raceAwareness },
+    timing: { ...timingDisplay },
     minimap: {
       canvasWidth: minimapDebug.canvasWidth,
       canvasHeight: minimapDebug.canvasHeight,

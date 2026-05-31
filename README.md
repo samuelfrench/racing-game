@@ -1,6 +1,6 @@
 # Neon Harbor GP
 
-Three.js arcade racing prototype with deterministic vehicle physics, countdown starts, launch-paced AI opponents, boundary recovery and wrong-way feedback, gap-aware live race position, ranked track minimap with heading/progress cues, ordered checkpoints, lap timing, boost, drift input, synthesized race audio, finish results, speed-responsive camera effects, animated trackside art, and browser-level gameplay verification.
+Three.js arcade racing prototype with deterministic vehicle physics, countdown starts, launch-paced AI opponents, boundary recovery and wrong-way feedback, gap-aware live race position, ranked track minimap with heading/progress cues, ordered checkpoints, live lap splits and sector delta timing, boost, drift input, synthesized race audio, finish results, speed-responsive camera effects, animated trackside art, and browser-level gameplay verification.
 
 ## Run
 

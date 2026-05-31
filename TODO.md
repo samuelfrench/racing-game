@@ -6,10 +6,11 @@
 
 ## Next Improvements
 
-- [ ] Add lap split and sector timing feedback.
+- [ ] Add post-race lap and sector split summary to the results panel.
 
 ## Completed
 
+- [x] Add lap split and sector timing feedback.
 - [x] Tune race-position/minimap styling after live-device feedback.
 - [x] Add track boundary recovery and wrong-way feedback.
 - [x] Tune opponent launch pacing after race-position HUD feedback.

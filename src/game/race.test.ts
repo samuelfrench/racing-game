@@ -42,4 +42,56 @@ describe('race progress', () => {
     expect(progress.lastLapSeconds).toBe(20);
     expect(progress.bestLapSeconds).toBe(20);
   });
+
+  it('records sector splits and best-sector deltas across laps', () => {
+    const checkpoints = [
+      { id: 'start', x: 0, z: 0, radius: 10 },
+      { id: 'ridge', x: 100, z: 0, radius: 10 },
+      { id: 'harbor', x: 100, z: 100, radius: 10 },
+    ];
+
+    let progress = createRaceProgress(checkpoints, 3);
+
+    progress = updateRaceProgress(progress, checkpoints, { x: 0, z: 0 }, 10);
+    expect(progress.sectorStartedAtSeconds).toBe(10);
+    expect(progress.lastSectorNumber).toBeNull();
+    expect(progress.bestSectorSeconds).toEqual([null, null, null]);
+
+    progress = updateRaceProgress(progress, checkpoints, { x: 100, z: 0 }, 17.5);
+    expect(progress.lastSectorNumber).toBe(1);
+    expect(progress.lastSectorCheckpointId).toBe('ridge');
+    expect(progress.lastSectorSeconds).toBe(7.5);
+    expect(progress.lastSectorDeltaSeconds).toBeNull();
+    expect(progress.lastSectorPersonalBest).toBe(true);
+
+    progress = updateRaceProgress(progress, checkpoints, { x: 100, z: 100 }, 26.25);
+    progress = updateRaceProgress(progress, checkpoints, { x: 0, z: 0 }, 40);
+    expect(progress.bestSectorSeconds).toEqual([7.5, 8.75, 13.75]);
+
+    progress = updateRaceProgress(progress, checkpoints, { x: 100, z: 0 }, 46);
+    expect(progress.bestSectorSeconds).toEqual([6, 8.75, 13.75]);
+    expect(progress.lastSectorNumber).toBe(1);
+    expect(progress.lastSectorCheckpointId).toBe('ridge');
+    expect(progress.lastSectorSeconds).toBe(6);
+    expect(progress.lastSectorDeltaSeconds).toBe(-1.5);
+    expect(progress.lastSectorPersonalBest).toBe(true);
+  });
+
+  it('stops the active sector timer when the race finishes', () => {
+    const checkpoints = [
+      { id: 'start', x: 0, z: 0, radius: 10 },
+      { id: 'ridge', x: 100, z: 0, radius: 10 },
+    ];
+
+    let progress = createRaceProgress(checkpoints, 1);
+    progress = updateRaceProgress(progress, checkpoints, { x: 0, z: 0 }, 0);
+    progress = updateRaceProgress(progress, checkpoints, { x: 100, z: 0 }, 8);
+    progress = updateRaceProgress(progress, checkpoints, { x: 0, z: 0 }, 20);
+
+    expect(progress.finished).toBe(true);
+    expect(progress.sectorStartedAtSeconds).toBeNull();
+    expect(progress.lastSectorNumber).toBe(2);
+    expect(progress.lastSectorSeconds).toBe(12);
+    expect(progress.bestSectorSeconds).toEqual([8, 12]);
+  });
 });

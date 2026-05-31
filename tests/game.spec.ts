@@ -94,6 +94,20 @@ type DebugState = {
     gapMeters: number | null;
     tone: 'leader' | 'chasing' | 'midfield' | 'last';
   };
+  timing: {
+    currentLapSeconds: number | null;
+    currentLapLabel: string;
+    bestLapLabel: string;
+    currentSectorNumber: number;
+    currentSectorLabel: string;
+    currentSectorLabelText: string;
+    currentSectorSeconds: number | null;
+    currentSectorTimeLabel: string;
+    lastSectorLabel: string;
+    lastSectorTimeLabel: string;
+    sectorDeltaLabel: string;
+    sectorDeltaTone: 'neutral' | 'best' | 'faster' | 'slower' | 'matched';
+  };
   minimap: {
     canvasWidth: number;
     canvasHeight: number;
@@ -149,8 +163,17 @@ for (const viewport of viewports) {
     await expect(page.locator('#race-status')).toBeVisible();
     await expect(page.locator('#race-position')).toHaveText(/^P[1-4]\/4$/);
     await expect(page.locator('#race-gap')).toHaveText(/^(?:LEAD|GAP) \d+m$|^FINISH$/);
+    await expect(page.locator('#lap-time')).toBeVisible();
+    await expect(page.locator('#sector-label')).toHaveText(/^S[1-5]$/);
+    await expect(page.locator('#sector-time')).toBeVisible();
+    await expect(page.locator('#sector-delta')).toBeVisible();
     await expect(page.locator('#minimap-canvas')).toBeVisible();
     await expectElementToBeWithinViewport(page, '#minimap-canvas');
+    await expectElementToBeWithinViewport(page, '#lap-time');
+    await expectElementToBeWithinViewport(page, '#sector-label');
+    await expectElementToBeWithinViewport(page, '#sector-time');
+    await expectElementToBeWithinViewport(page, '#sector-delta');
+    await expectElementsNotToOverlap(page, ['#lap-time', '#sector-label', '#sector-time', '#sector-delta'], '#minimap-canvas');
     await expectRaceStatusTextToFit(page, ['READY', '3', 'GO', 'FINISH', 'OFF TRACK', 'WRONG WAY', 'RECOVERING']);
     await expect(page.locator('#start-button')).toBeVisible();
     await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
@@ -168,6 +191,7 @@ for (const viewport of viewports) {
       })
       .toBe(true);
     await expect.poll(() => readDebug(page).then((debug) => debug.minimap.progressRatio)).toBeGreaterThanOrEqual(0);
+    await expect.poll(() => readDebug(page).then((debug) => debug.timing.currentSectorLabel)).toMatch(/^S[1-5]$/);
     await expect
       .poll(() => readDebug(page).then((debug) => debug.racePosition.position), {
         message: 'player race position is in the four-car field',
@@ -180,6 +204,7 @@ for (const viewport of viewports) {
       .toBeLessThanOrEqual(4);
     await expect.poll(() => readDebug(page).then((debug) => debug.racePosition.participants.length)).toBe(4);
     await expect.poll(() => readDebug(page).then((debug) => debug.minimap.markers.length)).toBe(4);
+    await expect.poll(() => readTimingHudMatch(page)).toBe(true);
 
     await expect
       .poll(() => countCanvasSampleColors(page), { message: 'canvas has varied rendered pixels' })
@@ -226,6 +251,17 @@ for (const viewport of viewports) {
 
     await expect.poll(() => readDebug(page).then((debug) => debug.phase), { timeout: 5_000 }).toBe('racing');
     const racingStart = await readDebug(page);
+    await expect
+      .poll(() => readDebug(page).then((debug) => debug.timing.currentLapSeconds ?? 0), {
+        message: 'current lap timer advances after launch',
+      })
+      .toBeGreaterThan(0);
+    await expect
+      .poll(() => readDebug(page).then((debug) => debug.timing.currentSectorSeconds ?? 0), {
+        message: 'current sector timer advances after launch',
+      })
+      .toBeGreaterThan(0);
+    await expect.poll(() => readTimingHudMatch(page)).toBe(true);
     await expect
       .poll(async () => {
         const current = await readDebug(page);
@@ -279,6 +315,25 @@ for (const viewport of viewports) {
     await page.screenshot({ path: `test-results/racing-game-${viewport.name}.png`, fullPage: true });
   });
 }
+
+test('timing HUD stays in bounds at tablet breakpoint edge widths', async ({ page }) => {
+  const consoleErrors = collectConsoleErrors(page);
+
+  for (const viewportWidth of [721, 730]) {
+    await page.setViewportSize({ width: viewportWidth, height: 720 });
+    await page.goto('/');
+    await expect.poll(() => hasDebugState(page), { message: `debug state is initialized at ${viewportWidth}px` }).toBe(true);
+
+    await expectElementToBeWithinViewport(page, '#minimap-canvas');
+    await expectElementToBeWithinViewport(page, '#lap-time');
+    await expectElementToBeWithinViewport(page, '#sector-label');
+    await expectElementToBeWithinViewport(page, '#sector-time');
+    await expectElementToBeWithinViewport(page, '#sector-delta');
+    await expectElementsNotToOverlap(page, ['#lap-time', '#sector-label', '#sector-time', '#sector-delta'], '#minimap-canvas');
+  }
+
+  expect(consoleErrors).toEqual([]);
+});
 
 test('shows wrong-way feedback when reversing after launch', async ({ page }) => {
   const consoleErrors = collectConsoleErrors(page);
@@ -650,6 +705,26 @@ async function readDebug(page: Page): Promise<DebugState> {
 
 async function hasDebugState(page: Page): Promise<boolean> {
   return page.evaluate(() => Boolean(window.__racingGameDebug));
+}
+
+async function readTimingHudMatch(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const debug = window.__racingGameDebug;
+    if (!debug) {
+      throw new Error('Missing racing game debug state');
+    }
+
+    const text = (selector: string) => document.querySelector(selector)?.textContent?.trim() ?? null;
+    const sectorDelta = document.querySelector('#sector-delta');
+
+    return (
+      debug.timing.currentLapLabel === text('#lap-time') &&
+      debug.timing.currentSectorLabel === text('#sector-label') &&
+      debug.timing.currentSectorTimeLabel === text('#sector-time') &&
+      debug.timing.sectorDeltaLabel === text('#sector-delta') &&
+      debug.timing.sectorDeltaTone === sectorDelta?.getAttribute('data-tone')
+    );
+  });
 }
 
 function collectConsoleErrors(page: Page): string[] {

@@ -15,6 +15,13 @@ export type RaceProgress = {
   readonly lapStartedAtSeconds: number | null;
   readonly lastLapSeconds: number | null;
   readonly bestLapSeconds: number | null;
+  readonly sectorStartedAtSeconds: number | null;
+  readonly lastSectorNumber: number | null;
+  readonly lastSectorCheckpointId: string | null;
+  readonly lastSectorSeconds: number | null;
+  readonly lastSectorDeltaSeconds: number | null;
+  readonly lastSectorPersonalBest: boolean;
+  readonly bestSectorSeconds: readonly (number | null)[];
   readonly finished: boolean;
 };
 
@@ -26,6 +33,13 @@ export function createRaceProgress(checkpoints: readonly RaceCheckpoint[], total
     lapStartedAtSeconds: null,
     lastLapSeconds: null,
     bestLapSeconds: null,
+    sectorStartedAtSeconds: null,
+    lastSectorNumber: null,
+    lastSectorCheckpointId: null,
+    lastSectorSeconds: null,
+    lastSectorDeltaSeconds: null,
+    lastSectorPersonalBest: false,
+    bestSectorSeconds: checkpoints.map(() => null),
     finished: checkpoints.length === 0,
   };
 }
@@ -48,9 +62,17 @@ export function updateRaceProgress(
   const nextCheckpointIndex = (progress.nextCheckpointIndex + 1) % checkpoints.length;
 
   if (progress.nextCheckpointIndex !== 0) {
+    const sectorProgress = recordCompletedSector(
+      progress,
+      progress.nextCheckpointIndex,
+      checkpoint.id,
+      elapsedSeconds,
+    );
+
     return {
-      ...progress,
+      ...sectorProgress,
       nextCheckpointIndex,
+      sectorStartedAtSeconds: elapsedSeconds,
     };
   }
 
@@ -59,22 +81,56 @@ export function updateRaceProgress(
       ...progress,
       nextCheckpointIndex,
       lapStartedAtSeconds: elapsedSeconds,
+      sectorStartedAtSeconds: elapsedSeconds,
     };
   }
 
+  const sectorProgress = recordCompletedSector(progress, checkpoints.length, checkpoint.id, elapsedSeconds);
   const lapSeconds = elapsedSeconds - progress.lapStartedAtSeconds;
   const bestLapSeconds =
     progress.bestLapSeconds === null ? lapSeconds : Math.min(progress.bestLapSeconds, lapSeconds);
   const finished = progress.currentLap >= progress.totalLaps;
 
   return {
-    ...progress,
+    ...sectorProgress,
     currentLap: finished ? progress.currentLap : progress.currentLap + 1,
     nextCheckpointIndex: finished ? -1 : nextCheckpointIndex,
-    lapStartedAtSeconds: elapsedSeconds,
+    lapStartedAtSeconds: finished ? progress.lapStartedAtSeconds : elapsedSeconds,
     lastLapSeconds: lapSeconds,
     bestLapSeconds,
+    sectorStartedAtSeconds: finished ? null : elapsedSeconds,
     finished,
+  };
+}
+
+function recordCompletedSector(
+  progress: RaceProgress,
+  sectorNumber: number,
+  checkpointId: string,
+  elapsedSeconds: number,
+): RaceProgress {
+  const sectorStartedAtSeconds = progress.sectorStartedAtSeconds ?? elapsedSeconds;
+  const sectorSeconds = elapsedSeconds - sectorStartedAtSeconds;
+  const sectorIndex = sectorNumber - 1;
+  const previousBestSeconds = progress.bestSectorSeconds[sectorIndex] ?? null;
+  const sectorDeltaSeconds = previousBestSeconds === null ? null : sectorSeconds - previousBestSeconds;
+  const personalBest = previousBestSeconds === null || sectorSeconds < previousBestSeconds;
+  const bestSectorSeconds = progress.bestSectorSeconds.map((bestSeconds, index) => {
+    if (index !== sectorIndex) {
+      return bestSeconds;
+    }
+
+    return bestSeconds === null ? sectorSeconds : Math.min(bestSeconds, sectorSeconds);
+  });
+
+  return {
+    ...progress,
+    lastSectorNumber: sectorNumber,
+    lastSectorCheckpointId: checkpointId,
+    lastSectorSeconds: sectorSeconds,
+    lastSectorDeltaSeconds: sectorDeltaSeconds,
+    lastSectorPersonalBest: personalBest,
+    bestSectorSeconds,
   };
 }
 

@@ -74,7 +74,7 @@ input {
   inset: 18px 18px auto;
   z-index: 3;
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 160px minmax(150px, 180px) 280px;
+  grid-template-columns: minmax(180px, 1fr) 160px minmax(150px, 180px) 340px;
   gap: 12px;
   pointer-events: none;
 }
@@ -162,7 +162,7 @@ input {
 
 .split-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 168px;
+  grid-template-columns: minmax(0, 1fr) 126px;
   gap: 10px;
   align-items: center;
   min-width: 0;
@@ -181,6 +181,55 @@ input {
   font-size: 1.08rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.timing-line {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  color: rgb(214 230 238 / 86%);
+  white-space: nowrap;
+}
+
+.timing-line span {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+#lap-time,
+#best-lap,
+#sector-time,
+#sector-delta {
+  display: inline-block;
+  min-width: 5.2ch;
+  color: #f8fbff;
+  font-weight: 900;
+  text-align: right;
+}
+
+#sector-label {
+  display: inline-block;
+  min-width: 2ch;
+  color: #36f1ff;
+  font-weight: 900;
+}
+
+#sector-delta {
+  min-width: 6ch;
+}
+
+#sector-delta[data-tone="best"],
+#sector-delta[data-tone="faster"] {
+  color: #63f7a4;
+}
+
+#sector-delta[data-tone="slower"] {
+  color: #ff9bb3;
+}
+
+#sector-delta[data-tone="matched"] {
+  color: #ffe66b;
 }
 
 .race-awareness-line {
@@ -235,8 +284,8 @@ input {
 
 #minimap-canvas {
   display: block;
-  width: 168px;
-  height: 104px;
+  width: 126px;
+  height: 78px;
   border: 1px solid rgb(54 241 255 / 36%);
   border-radius: 6px;
   background: #071018;
@@ -633,6 +682,7 @@ input {
 
 .settings-high-contrast .eyebrow,
 .settings-high-contrast .split-card p,
+.settings-high-contrast .timing-line,
 .settings-high-contrast .speed-card small {
   color: #ffffff;
 }
@@ -660,6 +710,21 @@ input {
 
   .split-card-text {
     gap: 3px;
+  }
+
+  .timing-line {
+    gap: 5px;
+    font-size: 0.66rem;
+  }
+
+  #lap-time,
+  #best-lap,
+  #sector-time {
+    min-width: 4.9ch;
+  }
+
+  #sector-delta {
+    min-width: 5.8ch;
   }
 
   #race-position {
@@ -734,7 +799,7 @@ input {
 
 @media (min-width: 721px) and (max-width: 880px) {
   #hud {
-    grid-template-columns: minmax(132px, 1fr) 112px 184px 228px;
+    grid-template-columns: minmax(132px, 1fr) 112px minmax(150px, 184px);
     gap: 8px;
   }
 
@@ -743,8 +808,14 @@ input {
   }
 
   .split-card {
+    grid-column: 1 / -1;
     grid-template-columns: minmax(0, 1fr) 132px;
     gap: 8px;
+  }
+
+  .timing-line {
+    gap: 5px;
+    font-size: 0.68rem;
   }
 
   #race-position {
