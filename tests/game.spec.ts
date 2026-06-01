@@ -143,6 +143,12 @@ type DebugState = {
     x: number | null;
     z: number | null;
     heading: number | null;
+    visualAid: {
+      visible: boolean;
+      opacity: number;
+      scale: number;
+      color: string;
+    };
   };
   minimap: {
     canvasWidth: number;
@@ -153,7 +159,7 @@ type DebugState = {
       x: number;
       z: number;
       color: string;
-      kind: 'player' | 'opponent';
+      kind: 'player' | 'opponent' | 'ghost';
       rank: number;
       heading: number;
       label: string;
@@ -468,6 +474,12 @@ test('ghost replay records a best lap, renders the next race ghost, and resets',
     x: null,
     z: null,
     heading: null,
+    visualAid: {
+      visible: false,
+      opacity: 0,
+      scale: 1,
+      color: '#36f1ff',
+    },
   });
 
   await expect
@@ -514,6 +526,17 @@ test('ghost replay records a best lap, renders the next race ghost, and resets',
   expect(Number.isFinite(debug.ghostReplay.x)).toBe(true);
   expect(Number.isFinite(debug.ghostReplay.z)).toBe(true);
   expect(Number.isFinite(debug.ghostReplay.heading)).toBe(true);
+  expect(debug.ghostReplay.visualAid.color).toBe('#36f1ff');
+  expect(debug.ghostReplay.visualAid.visible).toBe(true);
+  expect(debug.ghostReplay.visualAid.opacity).toBeGreaterThan(0.42);
+  expect(debug.ghostReplay.visualAid.scale).toBeGreaterThan(1);
+  const ghostMarker = debug.minimap.markers.find((marker) => marker.kind === 'ghost');
+  expect(ghostMarker).toMatchObject({
+    id: 'ghost',
+    color: '#36f1ff',
+    label: 'G',
+  });
+  expect(debug.minimap.markers).toHaveLength(5);
 
   await page.reload();
   await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized after reload' }).toBe(true);
@@ -534,6 +557,12 @@ test('ghost replay records a best lap, renders the next race ghost, and resets',
     x: null,
     z: null,
     heading: null,
+    visualAid: {
+      visible: false,
+      opacity: 0,
+      scale: 1,
+      color: '#36f1ff',
+    },
   });
 
   expect(consoleErrors).toEqual([]);
