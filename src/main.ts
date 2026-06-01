@@ -177,7 +177,7 @@ type MinimapMarkerDebug = {
   readonly x: number;
   readonly z: number;
   readonly color: string;
-  readonly kind: 'player' | 'opponent';
+  readonly kind: 'player' | 'opponent' | 'ghost';
   readonly rank: number;
   readonly heading: number;
   readonly label: string;
@@ -209,6 +209,19 @@ type GhostReplayDebugState = {
   readonly x: number | null;
   readonly z: number | null;
   readonly heading: number | null;
+  readonly visualAid: GhostReplayVisualAidDebugState;
+};
+
+type GhostReplayVisualAidDebugState = {
+  visible: boolean;
+  opacity: number;
+  scale: number;
+  readonly color: '#36f1ff';
+};
+
+type GhostVisualAid = {
+  readonly mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  readonly material: THREE.MeshBasicMaterial;
 };
 
 type TrackArtDebug = {
@@ -376,6 +389,13 @@ const lastAudioSnapshot: RaceAudioSnapshotTarget = {
 writeCurrentAudioSnapshot(currentAudioSnapshot);
 writeRaceAudioSnapshot(lastAudioSnapshot, currentAudioSnapshot);
 
+const ghostVisualAidState: GhostReplayVisualAidDebugState = {
+  visible: false,
+  opacity: 0,
+  scale: 1,
+  color: '#36f1ff',
+};
+
 const world = buildWorld(track);
 const trackArt = addTracksideObjects(world, track);
 scene.add(world);
@@ -383,6 +403,8 @@ const car = buildCar();
 scene.add(car);
 const ghostCar = buildGhostCar();
 scene.add(ghostCar);
+const ghostVisualAid = buildGhostVisualAid();
+ghostCar.add(ghostVisualAid.mesh);
 const opponentMeshes = opponents.map((opponent) => {
   const opponentCar = buildCar(opponent.color);
   opponentCar.scale.setScalar(0.92);
@@ -823,6 +845,22 @@ function buildGhostCar(): THREE.Group {
   return group;
 }
 
+function buildGhostVisualAid(): GhostVisualAid {
+  const material = new THREE.MeshBasicMaterial({
+    color: 0x36f1ff,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(new THREE.RingGeometry(3.9, 5.75, 56), material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.04;
+  mesh.visible = false;
+  mesh.renderOrder = 2;
+  return { mesh, material };
+}
+
 function updateCarMesh(carMesh: THREE.Group, state: VehicleState): void {
   carMesh.position.set(state.position.x, 0.12, state.position.z);
   carMesh.rotation.set(0, state.heading, -state.lateralVelocity * 0.016);
@@ -870,18 +908,42 @@ function updateGhostReplayMesh(): void {
   if (session.phase !== 'racing' || progress.lapStartedAtSeconds === null) {
     ghostPose = null;
     ghostCar.visible = false;
+    updateGhostVisualAid(false);
     return;
   }
 
   ghostPose = sampleGhostReplay(ghostReplay, elapsedSeconds - progress.lapStartedAtSeconds);
   if (ghostPose === null) {
     ghostCar.visible = false;
+    updateGhostVisualAid(false);
     return;
   }
 
   ghostCar.visible = true;
   ghostCar.position.set(ghostPose.x, 0.18, ghostPose.z);
   ghostCar.rotation.set(0, ghostPose.headingRadians, 0);
+  updateGhostVisualAid(true);
+}
+
+function updateGhostVisualAid(visible: boolean): void {
+  ghostVisualAid.mesh.visible = visible;
+  ghostVisualAidState.visible = visible;
+
+  if (!visible) {
+    ghostVisualAid.material.opacity = 0;
+    ghostVisualAid.mesh.scale.setScalar(1);
+    ghostVisualAidState.opacity = 0;
+    ghostVisualAidState.scale = 1;
+    return;
+  }
+
+  const pulse = Math.sin(elapsedSeconds * 5.4);
+  const opacity = 0.52 + pulse * 0.045;
+  const scale = 1.13 + pulse * 0.055;
+  ghostVisualAid.material.opacity = opacity;
+  ghostVisualAid.mesh.scale.setScalar(scale);
+  ghostVisualAidState.opacity = opacity;
+  ghostVisualAidState.scale = scale;
 }
 
 function updateCheckpoints(raceProgress: RaceProgress): void {
@@ -1151,6 +1213,22 @@ function drawMinimapMarker(context: CanvasRenderingContext2D, marker: MinimapMar
     return;
   }
 
+  if (marker.kind === 'ghost') {
+    context.beginPath();
+    context.arc(x, y, 5.8, 0, Math.PI * 2);
+    context.fillStyle = 'rgb(54 241 255 / 0.22)';
+    context.fill();
+    context.lineWidth = 2;
+    context.strokeStyle = marker.color;
+    context.stroke();
+    context.beginPath();
+    context.arc(x, y, 2.2, 0, Math.PI * 2);
+    context.fillStyle = marker.color;
+    context.fill();
+    drawMinimapMarkerLabel(context, marker, x, y, 11);
+    return;
+  }
+
   context.beginPath();
   context.arc(x, y, 3.8, 0, Math.PI * 2);
   context.fillStyle = marker.color;
@@ -1208,7 +1286,7 @@ function getMinimapBounds(canvasWidth: number, canvasHeight: number): MinimapBou
 }
 
 function createMinimapMarkers(bounds: MinimapBounds): readonly MinimapMarkerDebug[] {
-  return racePosition.participants.map((participant, index) => {
+  const markers = racePosition.participants.map((participant, index) => {
     if (participant.id === 'player') {
       return createMinimapMarker({
         id: participant.id,
@@ -1232,6 +1310,23 @@ function createMinimapMarkers(bounds: MinimapBounds): readonly MinimapMarkerDebu
       bounds,
     });
   });
+
+  if (ghostPose !== null && ghostCar.visible) {
+    markers.push(
+      createMinimapMarker({
+        id: 'ghost',
+        position: ghostPose,
+        color: '#36f1ff',
+        kind: 'ghost',
+        rank: markers.length + 1,
+        heading: ghostPose.headingRadians,
+        label: 'G',
+        bounds,
+      }),
+    );
+  }
+
+  return markers;
 }
 
 function createMinimapMarker(input: {
@@ -1241,9 +1336,10 @@ function createMinimapMarker(input: {
   readonly kind: MinimapMarkerDebug['kind'];
   readonly rank: number;
   readonly heading: number;
+  readonly label?: string;
   readonly bounds: MinimapBounds;
 }): MinimapMarkerDebug {
-  const { id, position, color, kind, rank, heading, bounds } = input;
+  const { id, position, color, kind, rank, heading, label, bounds } = input;
   const mapPoint = worldToMinimap(position, bounds);
   return {
     id,
@@ -1253,7 +1349,7 @@ function createMinimapMarker(input: {
     kind,
     rank,
     heading: Number.isFinite(heading) ? heading : 0,
-    label: `P${rank}`,
+    label: label ?? `P${rank}`,
   };
 }
 
@@ -1544,6 +1640,7 @@ function finishRaceForTest(): void {
   ghostReplayStatus = createGhostReplayStatus(ghostReplay);
   ghostPose = null;
   ghostCar.visible = false;
+  updateGhostVisualAid(false);
   vehicle = {
     ...vehicle,
     position: {
@@ -1708,6 +1805,7 @@ function resetRace(): void {
   ghostReplayStatus = createGhostReplayStatus(ghostReplay);
   ghostPose = null;
   ghostCar.visible = false;
+  updateGhostVisualAid(false);
   elapsedSeconds = 0;
   speedEffects = computeSpeedEffects({
     speed: 0,
@@ -2084,6 +2182,7 @@ function createGhostReplayDebugState(): GhostReplayDebugState {
     x: ghostPose?.x ?? null,
     z: ghostPose?.z ?? null,
     heading: ghostPose?.headingRadians ?? null,
+    visualAid: { ...ghostVisualAidState },
   };
 }
 
