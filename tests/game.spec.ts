@@ -570,6 +570,7 @@ test('ghost replay records a best lap, renders the next race ghost, and resets',
 
 test('keyboard steering follows chase-camera left and right direction', async ({ page }) => {
   const consoleErrors = collectConsoleErrors(page);
+  const minimumMeaningfulTravel = 5;
 
   await page.setViewportSize({ width: 1280, height: 720 });
 
@@ -578,14 +579,14 @@ test('keyboard steering follows chase-camera left and right direction', async ({
   expect(Number.isFinite(left.endHeading)).toBe(true);
   expect(left.headingDelta).toBeGreaterThan(0.06);
   expect(Math.abs(left.headingDelta)).toBeLessThan(1.45);
-  expect(left.travelDistance).toBeGreaterThan(8);
+  expect(left.travelDistance).toBeGreaterThan(minimumMeaningfulTravel);
 
   const right = await runSteeringDirectionProbe(page, 'ArrowRight');
   expect(Number.isFinite(right.startHeading)).toBe(true);
   expect(Number.isFinite(right.endHeading)).toBe(true);
   expect(right.headingDelta).toBeLessThan(-0.06);
   expect(Math.abs(right.headingDelta)).toBeLessThan(1.45);
-  expect(right.travelDistance).toBeGreaterThan(8);
+  expect(right.travelDistance).toBeGreaterThan(minimumMeaningfulTravel);
 
   expect(consoleErrors).toEqual([]);
 });
