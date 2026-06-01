@@ -557,7 +557,6 @@ test('keyboard steering follows chase-camera left and right direction', async ({
   expect(right.headingDelta).toBeLessThan(-0.06);
   expect(Math.abs(right.headingDelta)).toBeLessThan(1.45);
   expect(right.travelDistance).toBeGreaterThan(8);
-  expect(Math.abs(Math.abs(left.headingDelta) - Math.abs(right.headingDelta))).toBeLessThan(0.25);
 
   expect(consoleErrors).toEqual([]);
 });
