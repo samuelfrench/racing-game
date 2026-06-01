@@ -16,9 +16,10 @@ export type GhostReplayBestLap = {
 export type GhostReplayState = {
   readonly currentSamples: readonly GhostReplayPoseSample[];
   readonly bestLap: GhostReplayBestLap | null;
+  readonly statusMode: GhostReplayStatusMode;
 };
 
-export type GhostReplayStatusMode = 'empty' | 'recording' | 'best-ready' | 'replaying';
+export type GhostReplayStatusMode = 'empty' | 'best' | 'new-best';
 
 export type GhostReplayStatusState = {
   readonly mode: GhostReplayStatusMode;
@@ -32,6 +33,7 @@ export function createGhostReplayState(): GhostReplayState {
   return {
     currentSamples: [],
     bestLap: null,
+    statusMode: 'empty',
   };
 }
 
@@ -51,6 +53,7 @@ export function recordGhostReplaySample(
   return {
     ...state,
     currentSamples: [...state.currentSamples, sanitized],
+    statusMode: state.bestLap === null ? 'empty' : 'best',
   };
 }
 
@@ -59,13 +62,22 @@ export function completeGhostReplayLap(
   completedLapSeconds: number,
   isPersonalBest: boolean,
 ): GhostReplayState {
-  const bestLap = isPersonalBest
-    ? createUsableBestLap(completedLapSeconds, state.currentSamples) ?? state.bestLap
+  const nextBestLap = isPersonalBest
+    ? createUsableBestLap(completedLapSeconds, state.currentSamples)
     : state.bestLap;
+
+  const bestLap = nextBestLap ?? state.bestLap;
+  const statusMode =
+    isPersonalBest && nextBestLap !== null
+      ? 'new-best'
+      : bestLap !== null
+        ? 'best'
+        : 'empty';
 
   return {
     currentSamples: [],
     bestLap,
+    statusMode,
   };
 }
 
@@ -112,30 +124,20 @@ export function createGhostReplayStatus(state: GhostReplayState): GhostReplaySta
   const bestSampleCount = state.bestLap?.samples.length ?? 0;
   const bestLapSeconds = state.bestLap?.durationSeconds ?? null;
 
-  if (state.bestLap !== null && currentSampleCount > 0) {
+  if (state.bestLap === null) {
     return {
-      mode: 'replaying',
-      label: 'Replaying best ghost',
+      mode: 'empty',
+      label: 'No ghost',
       currentSampleCount,
       bestSampleCount,
       bestLapSeconds,
     };
   }
 
-  if (currentSampleCount > 0) {
+  if (state.statusMode === 'new-best') {
     return {
-      mode: 'recording',
-      label: 'Recording ghost',
-      currentSampleCount,
-      bestSampleCount,
-      bestLapSeconds,
-    };
-  }
-
-  if (state.bestLap !== null) {
-    return {
-      mode: 'best-ready',
-      label: 'Best ghost ready',
+      mode: 'new-best',
+      label: 'New best ghost',
       currentSampleCount,
       bestSampleCount,
       bestLapSeconds,
@@ -143,8 +145,8 @@ export function createGhostReplayStatus(state: GhostReplayState): GhostReplaySta
   }
 
   return {
-    mode: 'empty',
-    label: 'No ghost',
+    mode: 'best',
+    label: 'Best ghost',
     currentSampleCount,
     bestSampleCount,
     bestLapSeconds,

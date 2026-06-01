@@ -45,9 +45,11 @@ describe('ghost replay', () => {
     expect(invalid).toBe(first);
     expect(second.currentSamples).toEqual([sample(1, 10, 20, 0.5), sample(2, 14, 28, 0.9)]);
     expect(createGhostReplayStatus(second)).toMatchObject({
-      mode: 'recording',
-      label: 'Recording ghost',
+      mode: 'empty',
+      label: 'No ghost',
       currentSampleCount: 2,
+      bestSampleCount: 0,
+      bestLapSeconds: null,
     });
   });
 
@@ -64,18 +66,26 @@ describe('ghost replay', () => {
       samples: [sample(0, 0, 0, 0), sample(12, 120, 10, 1.2)],
     });
     expect(createGhostReplayStatus(best)).toMatchObject({
-      mode: 'best-ready',
-      label: 'Best ghost ready',
+      mode: 'new-best',
+      label: 'New best ghost',
       bestSampleCount: 2,
       bestLapSeconds: 12,
+      currentSampleCount: 0,
     });
 
     const nextRecording = recordGhostReplaySample(best, sample(1, 5, 5, 0.2));
     const nonBest = completeGhostReplayLap(nextRecording, 14, false);
 
     expect(createGhostReplayStatus(nextRecording)).toMatchObject({
-      mode: 'replaying',
-      label: 'Replaying best ghost',
+      mode: 'best',
+      label: 'Best ghost',
+      currentSampleCount: 1,
+    });
+    expect(createGhostReplayStatus(nonBest)).toMatchObject({
+      mode: 'best',
+      label: 'Best ghost',
+      bestSampleCount: 2,
+      bestLapSeconds: 12,
     });
     expect(nonBest.currentSamples).toEqual([]);
     expect(nonBest.bestLap).toBe(best.bestLap);
