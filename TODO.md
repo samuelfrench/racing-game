@@ -6,10 +6,11 @@
 
 ## Next Improvements
 
-- [ ] Tune braking and low-speed corner feel after live-device feedback.
+- [ ] Tune opponent cornering lines and passing pressure after live-device feedback.
 
 ## Completed
 
+- [x] Improve low-speed steering response under throttle and braking.
 - [x] Add drift smoke visual feedback for handbrake slides.
 - [x] Tune ghost replay visual readability after live-device feedback.
 - [x] Add ghost-car replay for the player's best lap.

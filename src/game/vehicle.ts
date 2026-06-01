@@ -34,6 +34,7 @@ const boostFuelUsePerSecond = 0.42;
 const boostFuelRecoveryPerSecond = 0.08;
 const turnRateRadians = 1.75;
 const fullSteeringSpeed = 30;
+const poweredLowSpeedSteeringFloor = 0.32;
 const highSpeedUndersteerStart = 38;
 
 export function createInitialVehicleState(): VehicleState {
@@ -68,7 +69,11 @@ export function stepVehicle(state: VehicleState, input: VehicleInput): VehicleSt
   const absSpeed = Math.abs(nextSpeed);
   const speedDirection = nextSpeed < 0 ? -1 : 1;
   const turnDirection = -steer;
-  const lowSpeedSteering = clamp(absSpeed / fullSteeringSpeed, 0, 1);
+  const poweredSteeringIntent = Math.max(throttle, brake);
+  const lowSpeedSteering = Math.max(
+    clamp(absSpeed / fullSteeringSpeed, 0, 1),
+    poweredSteeringIntent * poweredLowSpeedSteeringFloor,
+  );
   const highSpeedUndersteer = lerp(
     1,
     0.46,

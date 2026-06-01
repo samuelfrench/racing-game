@@ -94,6 +94,56 @@ describe('vehicle physics', () => {
     expect(Math.abs(left.heading)).toBeCloseTo(Math.abs(right.heading), 6);
   });
 
+  it('keeps low-speed steering responsive under throttle or brake without pivoting in place', () => {
+    const parked = stepVehicle(createInitialVehicleState(), {
+      deltaSeconds: 0.1,
+      throttle: 0,
+      brake: 0,
+      steer: -1,
+      handbrake: false,
+      boost: false,
+      trackGrip: 1,
+    });
+    const parkedHandbrake = stepVehicle(createInitialVehicleState(), {
+      deltaSeconds: 0.1,
+      throttle: 0,
+      brake: 0,
+      steer: -1,
+      handbrake: true,
+      boost: false,
+      trackGrip: 1,
+    });
+    const launching = stepVehicle(createInitialVehicleState(), {
+      deltaSeconds: 0.1,
+      throttle: 1,
+      brake: 0,
+      steer: -1,
+      handbrake: false,
+      boost: false,
+      trackGrip: 1,
+    });
+    const trailBraking = stepVehicle(
+      {
+        ...createInitialVehicleState(),
+        speed: 5,
+      },
+      {
+        deltaSeconds: 0.1,
+        throttle: 0,
+        brake: 1,
+        steer: -1,
+        handbrake: false,
+        boost: false,
+        trackGrip: 1,
+      },
+    );
+
+    expect(parked.heading).toBe(0);
+    expect(parkedHandbrake.heading).toBe(0);
+    expect(launching.heading).toBeGreaterThan(0.045);
+    expect(trailBraking.heading).toBeGreaterThan(0.045);
+  });
+
   it('reduces steering authority at very high speed instead of pivoting at max rate', () => {
     const mediumSpeed = stepVehicle(
       {
