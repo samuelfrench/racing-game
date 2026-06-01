@@ -62,13 +62,17 @@ export function completeGhostReplayLap(
   completedLapSeconds: number,
   isPersonalBest: boolean,
 ): GhostReplayState {
-  const nextBestLap = isPersonalBest
+  const candidateBestLap = isPersonalBest
     ? createUsableBestLap(completedLapSeconds, state.currentSamples)
-    : state.bestLap;
+    : null;
+  const nextBestLap =
+    candidateBestLap !== null && isFasterThanStoredBest(candidateBestLap, state.bestLap)
+      ? candidateBestLap
+      : null;
 
   const bestLap = nextBestLap ?? state.bestLap;
   const statusMode =
-    isPersonalBest && nextBestLap !== null
+    nextBestLap !== null
       ? 'new-best'
       : bestLap !== null
         ? 'best'
@@ -90,8 +94,7 @@ export function sampleGhostReplay(
   }
 
   const samples = state.bestLap.samples;
-  const lapSeconds = Number.isFinite(currentLapSeconds) ? currentLapSeconds : 0;
-  const clampedLapSeconds = clamp(lapSeconds, 0, state.bestLap.durationSeconds);
+  const clampedLapSeconds = clamp(currentLapSeconds, 0, state.bestLap.durationSeconds);
 
   if (samples.length === 1 || clampedLapSeconds <= samples[0].lapSeconds) {
     return toPose(samples[0]);
@@ -111,7 +114,7 @@ export function sampleGhostReplay(
       return {
         x: lerp(previous.x, next.x, t),
         z: lerp(previous.z, next.z, t),
-        headingRadians: lerp(previous.headingRadians, next.headingRadians, t),
+        headingRadians: lerpAngleRadians(previous.headingRadians, next.headingRadians, t),
       };
     }
   }
@@ -181,6 +184,13 @@ function createUsableBestLap(
   };
 }
 
+function isFasterThanStoredBest(
+  candidate: GhostReplayBestLap,
+  storedBest: GhostReplayBestLap | null,
+): boolean {
+  return storedBest === null || candidate.durationSeconds < storedBest.durationSeconds;
+}
+
 function sanitizeSample(sample: GhostReplayPoseSample): GhostReplayPoseSample | null {
   if (
     !Number.isFinite(sample.lapSeconds) ||
@@ -210,6 +220,21 @@ function toPose(sample: GhostReplayPoseSample): GhostReplayPose {
 
 function lerp(start: number, end: number, t: number): number {
   return start + (end - start) * clamp(t, 0, 1);
+}
+
+function lerpAngleRadians(start: number, end: number, t: number): number {
+  const wrappedDelta = shortestAngleDeltaRadians(start, end);
+  return normalizeAngleRadians(start + wrappedDelta * clamp(t, 0, 1));
+}
+
+function shortestAngleDeltaRadians(start: number, end: number): number {
+  const fullTurn = Math.PI * 2;
+  const delta = end - start;
+  return ((((delta + Math.PI) % fullTurn) + fullTurn) % fullTurn) - Math.PI;
+}
+
+function normalizeAngleRadians(angle: number): number {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
 }
 
 function clamp(value: number, min: number, max: number): number {

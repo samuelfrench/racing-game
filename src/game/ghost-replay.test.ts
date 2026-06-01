@@ -91,6 +91,58 @@ describe('ghost replay', () => {
     expect(nonBest.bestLap).toBe(best.bestLap);
   });
 
+  it('keeps the previous best when a slower lap is incorrectly marked as personal best', () => {
+    const firstBest = completeGhostReplayLap(
+      recordGhostReplaySample(
+        recordGhostReplaySample(createGhostReplayState(), sample(0, 0, 0, 0)),
+        sample(10, 100, 0, 1),
+      ),
+      10,
+      true,
+    );
+    const slowerRecording = recordGhostReplaySample(
+      recordGhostReplaySample(firstBest, sample(0, 0, 0, 0)),
+      sample(11, 110, 0, 1.1),
+    );
+
+    const slower = completeGhostReplayLap(slowerRecording, 11, true);
+
+    expect(slower.bestLap).toBe(firstBest.bestLap);
+    expect(createGhostReplayStatus(slower)).toMatchObject({
+      mode: 'best',
+      label: 'Best ghost',
+      bestLapSeconds: 10,
+    });
+  });
+
+  it('replaces the previous best when a faster personal-best lap is completed', () => {
+    const firstBest = completeGhostReplayLap(
+      recordGhostReplaySample(
+        recordGhostReplaySample(createGhostReplayState(), sample(0, 0, 0, 0)),
+        sample(10, 100, 0, 1),
+      ),
+      10,
+      true,
+    );
+    const fasterRecording = recordGhostReplaySample(
+      recordGhostReplaySample(firstBest, sample(0, 0, 0, 0)),
+      sample(9, 90, 0, 0.9),
+    );
+
+    const faster = completeGhostReplayLap(fasterRecording, 9, true);
+
+    expect(faster.bestLap).not.toBe(firstBest.bestLap);
+    expect(faster.bestLap).toEqual({
+      durationSeconds: 9,
+      samples: [sample(0, 0, 0, 0), sample(9, 90, 0, 0.9)],
+    });
+    expect(createGhostReplayStatus(faster)).toMatchObject({
+      mode: 'new-best',
+      label: 'New best ghost',
+      bestLapSeconds: 9,
+    });
+  });
+
   it('clears unusable completed laps without poisoning the previous best', () => {
     const previousBest = completeGhostReplayLap(
       recordGhostReplaySample(createGhostReplayState(), sample(1, 10, 0, 0.1)),
@@ -123,6 +175,43 @@ describe('ghost replay', () => {
     expect(sampleGhostReplay(best, 2.5)).toEqual({ x: 5, z: 10, headingRadians: 0.5 });
     expect(sampleGhostReplay(best, 7.5)).toEqual({ x: 15, z: 15, headingRadians: 1.5 });
     expect(sampleGhostReplay(best, Number.NaN)).toEqual({ x: 0, z: 0, headingRadians: 0 });
+  });
+
+  it('interpolates heading across the wraparound boundary using the shortest arc', () => {
+    let state = createGhostReplayState();
+    state = recordGhostReplaySample(state, sample(0, 0, 0, 2.9670597283903604));
+    state = recordGhostReplaySample(state, sample(10, 10, 10, -2.9670597283903604));
+    const best = completeGhostReplayLap(state, 10, true);
+
+    expect(sampleGhostReplay(best, 5)).toEqual({
+      x: 5,
+      z: 5,
+      headingRadians: Math.PI,
+    });
+  });
+
+  it('treats positive infinity as the final pose and negative infinity or NaN as the first pose', () => {
+    let state = createGhostReplayState();
+    state = recordGhostReplaySample(state, sample(0, 0, 0, 0));
+    state = recordGhostReplaySample(state, sample(5, 10, 20, 1));
+    state = recordGhostReplaySample(state, sample(10, 20, 10, 2));
+    const best = completeGhostReplayLap(state, 10, true);
+
+    expect(sampleGhostReplay(best, Number.POSITIVE_INFINITY)).toEqual({
+      x: 20,
+      z: 10,
+      headingRadians: 2,
+    });
+    expect(sampleGhostReplay(best, Number.NEGATIVE_INFINITY)).toEqual({
+      x: 0,
+      z: 0,
+      headingRadians: 0,
+    });
+    expect(sampleGhostReplay(best, Number.NaN)).toEqual({
+      x: 0,
+      z: 0,
+      headingRadians: 0,
+    });
   });
 });
 
