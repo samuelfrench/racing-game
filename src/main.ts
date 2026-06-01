@@ -63,6 +63,17 @@ import {
 } from './game/track-feedback';
 import { createRaceTimingDisplay, type RaceTimingDisplayState } from './game/race-timing';
 import { createRaceSplitSummary, type RaceSplitSummaryState } from './game/race-summary';
+import {
+  completeGhostReplayLap,
+  createGhostReplayState,
+  createGhostReplayStatus,
+  recordGhostReplaySample,
+  resetGhostReplayRecording,
+  sampleGhostReplay,
+  type GhostReplayPose,
+  type GhostReplayState,
+  type GhostReplayStatusState,
+} from './game/ghost-replay';
 
 type HudElements = {
   lap: HTMLElement;
@@ -77,6 +88,7 @@ type HudElements = {
   sectorDelta: HTMLElement;
   racePosition: HTMLElement;
   raceGap: HTMLElement;
+  ghostStatus: HTMLElement;
   minimapCanvas: HTMLCanvasElement;
   raceStatus: HTMLElement;
   resultsPanel: HTMLElement;
@@ -154,6 +166,7 @@ type DebugState = {
   raceAwareness: RaceAwarenessState;
   timing: RaceTimingDisplayState;
   splitSummary: RaceSplitSummaryState;
+  ghostReplay: GhostReplayDebugState;
   minimap: MinimapDebugState;
   opponents: readonly DebugOpponent[];
   results: readonly RaceResult[];
@@ -185,6 +198,17 @@ type DebugOpponent = {
   readonly speed: number;
   readonly targetSpeed: number;
   readonly finishedAtSeconds: number | null;
+};
+
+type GhostReplayDebugState = {
+  readonly status: GhostReplayStatusState;
+  readonly visible: boolean;
+  readonly currentSampleCount: number;
+  readonly bestSampleCount: number;
+  readonly bestLapSeconds: number | null;
+  readonly x: number | null;
+  readonly z: number | null;
+  readonly heading: number | null;
 };
 
 type TrackArtDebug = {
@@ -226,6 +250,7 @@ const hud = {
   sectorDelta: mustGet('sector-delta'),
   racePosition: mustGet('race-position'),
   raceGap: mustGet('race-gap'),
+  ghostStatus: mustGet('ghost-status'),
   minimapCanvas: mustGet<HTMLCanvasElement>('minimap-canvas'),
   raceStatus: mustGet('race-status'),
   resultsPanel: mustGet('results-panel'),
@@ -297,6 +322,9 @@ let racePosition: RacePositionState = rankRaceParticipants([]);
 let raceAwareness: RaceAwarenessState = createRaceAwareness(racePosition);
 let timingDisplay: RaceTimingDisplayState = createRaceTimingDisplay(progress, track.checkpoints.length, elapsedSeconds);
 let splitSummaryDisplay: RaceSplitSummaryState = createRaceSplitSummary(progress);
+let ghostReplay: GhostReplayState = createGhostReplayState();
+let ghostReplayStatus: GhostReplayStatusState = createGhostReplayStatus(ghostReplay);
+let ghostPose: GhostReplayPose | null = null;
 let minimapDebug: MinimapDebugState = {
   canvasWidth: hud.minimapCanvas.width,
   canvasHeight: hud.minimapCanvas.height,
@@ -353,6 +381,8 @@ const trackArt = addTracksideObjects(world, track);
 scene.add(world);
 const car = buildCar();
 scene.add(car);
+const ghostCar = buildGhostCar();
+scene.add(ghostCar);
 const opponentMeshes = opponents.map((opponent) => {
   const opponentCar = buildCar(opponent.color);
   opponentCar.scale.setScalar(0.92);
@@ -413,7 +443,10 @@ function loop(timestamp = performance.now()): void {
     });
     trackFeedback = feedbackResult.state;
     vehicle = feedbackResult.vehicle;
+    const previousProgress = progress;
+    recordGhostReplayFrame(previousProgress);
     progress = updateRaceProgress(progress, track.checkpoints, vehicle.position, elapsedSeconds);
+    completeGhostReplayLapIfNeeded(previousProgress);
     opponents = stepOpponents(opponents, track, deltaSeconds, true, elapsedSeconds);
 
     if (progress.finished) {
@@ -434,6 +467,7 @@ function loop(timestamp = performance.now()): void {
 
   updateCarMesh(car, vehicle);
   updateOpponentMeshes();
+  updateGhostReplayMesh();
   updateCheckpoints(progress);
   updateCamera(deltaSeconds);
   updateSpeedEffects();
@@ -766,6 +800,29 @@ function buildCar(bodyColor: THREE.ColorRepresentation = 0xff335f): THREE.Group 
   return group;
 }
 
+function buildGhostCar(): THREE.Group {
+  const group = buildCar(0x36f1ff);
+  group.visible = false;
+  group.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) {
+      return;
+    }
+
+    const material = object.material;
+    if (!(material instanceof THREE.MeshBasicMaterial)) {
+      return;
+    }
+
+    const ghostMaterial = material.clone();
+    ghostMaterial.color.set(0x36f1ff);
+    ghostMaterial.transparent = true;
+    ghostMaterial.opacity = 0.34;
+    ghostMaterial.depthWrite = false;
+    object.material = ghostMaterial;
+  });
+  return group;
+}
+
 function updateCarMesh(carMesh: THREE.Group, state: VehicleState): void {
   carMesh.position.set(state.position.x, 0.12, state.position.z);
   carMesh.rotation.set(0, state.heading, -state.lateralVelocity * 0.016);
@@ -781,6 +838,50 @@ function updateOpponentMeshes(): void {
     opponentMesh.position.set(opponent.position.x + laneOffset.x, 0.1, opponent.position.z + laneOffset.z);
     opponentMesh.rotation.set(0, opponent.heading, 0);
   });
+}
+
+function recordGhostReplayFrame(raceProgress: RaceProgress): void {
+  if (raceProgress.finished || raceProgress.lapStartedAtSeconds === null) {
+    return;
+  }
+
+  ghostReplay = recordGhostReplaySample(ghostReplay, {
+    lapSeconds: Math.max(0, elapsedSeconds - raceProgress.lapStartedAtSeconds),
+    x: vehicle.position.x,
+    z: vehicle.position.z,
+    headingRadians: vehicle.heading,
+  });
+}
+
+function completeGhostReplayLapIfNeeded(previousProgress: RaceProgress): void {
+  if (progress.completedLapSeconds.length <= previousProgress.completedLapSeconds.length) {
+    return;
+  }
+
+  const completedLapSeconds = progress.completedLapSeconds[progress.completedLapSeconds.length - 1];
+  const isPersonalBest =
+    previousProgress.bestLapSeconds === null || completedLapSeconds < previousProgress.bestLapSeconds;
+  ghostReplay = completeGhostReplayLap(ghostReplay, completedLapSeconds, isPersonalBest);
+}
+
+function updateGhostReplayMesh(): void {
+  ghostReplayStatus = createGhostReplayStatus(ghostReplay);
+
+  if (session.phase !== 'racing' || progress.lapStartedAtSeconds === null) {
+    ghostPose = null;
+    ghostCar.visible = false;
+    return;
+  }
+
+  ghostPose = sampleGhostReplay(ghostReplay, elapsedSeconds - progress.lapStartedAtSeconds);
+  if (ghostPose === null) {
+    ghostCar.visible = false;
+    return;
+  }
+
+  ghostCar.visible = true;
+  ghostCar.position.set(ghostPose.x, 0.18, ghostPose.z);
+  ghostCar.rotation.set(0, ghostPose.headingRadians, 0);
 }
 
 function updateCheckpoints(raceProgress: RaceProgress): void {
@@ -859,6 +960,8 @@ function updateHud(raceProgress: RaceProgress, state: VehicleState): void {
   hud.sectorDelta.textContent = timingDisplay.sectorDeltaLabel;
   hud.sectorDelta.dataset.tone = timingDisplay.sectorDeltaTone;
   hud.raceStatus.textContent = getRaceStatusText(session, trackFeedback);
+  hud.ghostStatus.textContent = ghostReplayStatus.label;
+  hud.ghostStatus.dataset.mode = ghostReplayStatus.mode;
   hud.boostMeter.style.transform = `scaleX(${state.boostFuel.toFixed(3)})`;
 }
 
@@ -1437,6 +1540,10 @@ function finishRaceForTest(): void {
   const replay = createDeterministicFinishedProgress();
   progress = replay.progress;
   elapsedSeconds = replay.elapsedSeconds;
+  ghostReplay = createDeterministicGhostReplay();
+  ghostReplayStatus = createGhostReplayStatus(ghostReplay);
+  ghostPose = null;
+  ghostCar.visible = false;
   vehicle = {
     ...vehicle,
     position: {
@@ -1459,6 +1566,7 @@ function finishRaceForTest(): void {
   trackFeedback = createTrackFeedbackState();
   hud.startPanel.classList.add('hidden');
   updateTouchControlsVisibility();
+  updateGhostReplayMesh();
   updateHud(progress, vehicle);
   updateRaceAwareness();
   updateResultsBoard();
@@ -1514,6 +1622,46 @@ function createDeterministicFinishedProgress(): {
   };
 }
 
+function createDeterministicGhostReplay(): GhostReplayState {
+  let replay = createGhostReplayState();
+  const startCheckpoint = track.checkpoints[0];
+
+  if (!startCheckpoint) {
+    return replay;
+  }
+
+  const bestLapIndex = getDeterministicBestLapIndex(progress.totalLaps);
+  let lapSeconds = 0;
+  replay = recordGhostReplaySample(replay, {
+    lapSeconds,
+    x: startCheckpoint.x,
+    z: startCheckpoint.z,
+    headingRadians: startPose.heading,
+  });
+
+  for (let checkpointIndex = 1; checkpointIndex < track.checkpoints.length; checkpointIndex += 1) {
+    const previousCheckpoint = track.checkpoints[checkpointIndex - 1];
+    const checkpoint = track.checkpoints[checkpointIndex];
+    lapSeconds += getDeterministicSectorSeconds(bestLapIndex, checkpointIndex - 1);
+    replay = recordGhostReplaySample(replay, {
+      lapSeconds,
+      x: checkpoint.x,
+      z: checkpoint.z,
+      headingRadians: getHeadingBetweenPoints(previousCheckpoint, checkpoint),
+    });
+  }
+
+  const previousCheckpoint = track.checkpoints[track.checkpoints.length - 1] ?? startCheckpoint;
+  lapSeconds += getDeterministicSectorSeconds(bestLapIndex, track.checkpoints.length - 1);
+  replay = recordGhostReplaySample(replay, {
+    lapSeconds,
+    x: startCheckpoint.x,
+    z: startCheckpoint.z,
+    headingRadians: getHeadingBetweenPoints(previousCheckpoint, startCheckpoint),
+  });
+  return completeGhostReplayLap(replay, lapSeconds, true);
+}
+
 function getDeterministicSectorSeconds(lapIndex: number, sectorIndex: number): number {
   const sectorDurations = [
     [7.42, 8.18, 7.86, 9.12, 8.48],
@@ -1522,6 +1670,26 @@ function getDeterministicSectorSeconds(lapIndex: number, sectorIndex: number): n
   ] as const;
   const lapDurations = sectorDurations[lapIndex % sectorDurations.length];
   return lapDurations[sectorIndex % lapDurations.length];
+}
+
+function getDeterministicBestLapIndex(totalLaps: number): number {
+  let bestLapIndex = 0;
+  let bestLapSeconds = Number.POSITIVE_INFINITY;
+  for (let lapIndex = 0; lapIndex < totalLaps; lapIndex += 1) {
+    let lapSeconds = 0;
+    for (let sectorIndex = 0; sectorIndex < track.checkpoints.length; sectorIndex += 1) {
+      lapSeconds += getDeterministicSectorSeconds(lapIndex, sectorIndex);
+    }
+    if (lapSeconds < bestLapSeconds) {
+      bestLapSeconds = lapSeconds;
+      bestLapIndex = lapIndex;
+    }
+  }
+  return bestLapIndex;
+}
+
+function getHeadingBetweenPoints(start: TrackPoint, end: TrackPoint): number {
+  return Math.atan2(end.x - start.x, end.z - start.z);
 }
 
 function readInput(): ControlInput {
@@ -1536,6 +1704,10 @@ function resetRace(): void {
   session = resetRaceSession(session);
   trackFeedback = createTrackFeedbackState();
   opponents = createOpponentGrid(track, progress.totalLaps);
+  ghostReplay = resetGhostReplayRecording(ghostReplay);
+  ghostReplayStatus = createGhostReplayStatus(ghostReplay);
+  ghostPose = null;
+  ghostCar.visible = false;
   elapsedSeconds = 0;
   speedEffects = computeSpeedEffects({
     speed: 0,
@@ -1882,6 +2054,7 @@ function createDebugState(): DebugState {
     raceAwareness: { ...raceAwareness },
     timing: { ...timingDisplay },
     splitSummary: cloneSplitSummary(splitSummaryDisplay),
+    ghostReplay: createGhostReplayDebugState(),
     minimap: {
       canvasWidth: minimapDebug.canvasWidth,
       canvasHeight: minimapDebug.canvasHeight,
@@ -1898,6 +2071,19 @@ function createDebugState(): DebugState {
       finishedAtSeconds: opponent.finishedAtSeconds,
     })),
     results: session.results.map((result) => ({ ...result })),
+  };
+}
+
+function createGhostReplayDebugState(): GhostReplayDebugState {
+  return {
+    status: { ...ghostReplayStatus },
+    visible: ghostCar.visible,
+    currentSampleCount: ghostReplay.currentSamples.length,
+    bestSampleCount: ghostReplay.bestLap?.samples.length ?? 0,
+    bestLapSeconds: ghostReplay.bestLap?.durationSeconds ?? null,
+    x: ghostPose?.x ?? null,
+    z: ghostPose?.z ?? null,
+    heading: ghostPose?.headingRadians ?? null,
   };
 }
 

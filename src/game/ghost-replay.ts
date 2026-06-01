@@ -41,6 +41,14 @@ export function resetGhostReplayState(): GhostReplayState {
   return createGhostReplayState();
 }
 
+export function resetGhostReplayRecording(state: GhostReplayState): GhostReplayState {
+  return {
+    currentSamples: [],
+    bestLap: state.bestLap,
+    statusMode: state.bestLap === null ? 'empty' : 'best',
+  };
+}
+
 export function recordGhostReplaySample(
   state: GhostReplayState,
   sample: GhostReplayPoseSample,

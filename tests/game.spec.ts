@@ -128,6 +128,22 @@ type DebugState = {
       }[];
     }[];
   };
+  ghostReplay: {
+    status: {
+      mode: 'empty' | 'best' | 'new-best';
+      label: string;
+      currentSampleCount: number;
+      bestSampleCount: number;
+      bestLapSeconds: number | null;
+    };
+    visible: boolean;
+    currentSampleCount: number;
+    bestSampleCount: number;
+    bestLapSeconds: number | null;
+    x: number | null;
+    z: number | null;
+    heading: number | null;
+  };
   minimap: {
     canvasWidth: number;
     canvasHeight: number;
@@ -424,6 +440,101 @@ test('post-race lap and sector split summary shows results, debug match, reset, 
       await expect(page.locator('#touch-controls')).toBeVisible();
     }
   }
+
+  expect(consoleErrors).toEqual([]);
+});
+
+test('ghost replay records a best lap, renders the next race ghost, and resets', async ({ page }) => {
+  const consoleErrors = collectConsoleErrors(page);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
+
+  await expect(page.locator('#ghost-status')).toHaveText('No ghost');
+  let debug = await readDebug(page);
+  expect(debug.ghostReplay).toMatchObject({
+    status: {
+      mode: 'empty',
+      label: 'No ghost',
+      currentSampleCount: 0,
+      bestSampleCount: 0,
+      bestLapSeconds: null,
+    },
+    visible: false,
+    currentSampleCount: 0,
+    bestSampleCount: 0,
+    bestLapSeconds: null,
+    x: null,
+    z: null,
+    heading: null,
+  });
+
+  await expect
+    .poll(() => page.evaluate(() => typeof window.__racingGameTestControls?.finishRace), {
+      message: 'deterministic finish control is installed',
+    })
+    .toBe('function');
+  await page.evaluate(() => window.__racingGameTestControls?.finishRace());
+  await expect.poll(() => readDebug(page).then((state) => state.phase)).toBe('finished');
+  await expect.poll(() => readDebug(page).then((state) => state.ghostReplay.status.label)).toBe('New best ghost');
+  await expect(page.locator('#ghost-status')).toHaveText('New best ghost');
+  debug = await readDebug(page);
+  expect(debug.ghostReplay.status.mode).toBe('new-best');
+  expect(debug.ghostReplay.currentSampleCount).toBe(0);
+  expect(debug.ghostReplay.bestSampleCount).toBeGreaterThan(2);
+  expect(debug.ghostReplay.bestLapSeconds).toBeGreaterThan(0);
+  expect(debug.ghostReplay.visible).toBe(false);
+  const storedBestSampleCount = debug.ghostReplay.bestSampleCount;
+  const storedBestLapSeconds = debug.ghostReplay.bestLapSeconds;
+
+  await page.keyboard.press('r');
+  await expect.poll(() => readDebug(page).then((state) => state.phase)).toBe('idle');
+  await expect(page.locator('#ghost-status')).toHaveText('Best ghost');
+  debug = await readDebug(page);
+  expect(debug.ghostReplay.visible).toBe(false);
+  expect(debug.ghostReplay.status.mode).toBe('best');
+  expect(debug.ghostReplay.bestSampleCount).toBe(storedBestSampleCount);
+  expect(debug.ghostReplay.bestLapSeconds).toBe(storedBestLapSeconds);
+
+  await page.locator('#start-button').click();
+  await expect.poll(() => readDebug(page).then((state) => state.phase)).toBe('racing');
+  await expect.poll(() => readDebug(page).then((state) => state.ghostReplay.visible)).toBe(true);
+  await expect.poll(() => readDebug(page).then((state) => state.ghostReplay.status.label)).toBe('Best ghost');
+  await expect(page.locator('#ghost-status')).toHaveText('Best ghost');
+  debug = await readDebug(page);
+  expect(debug.ghostReplay.status.mode).toBe('best');
+  expect(debug.ghostReplay.status.label).toBe(await page.locator('#ghost-status').textContent());
+  expect(debug.ghostReplay.bestSampleCount).toBe(storedBestSampleCount);
+  expect(debug.ghostReplay.bestLapSeconds).toBe(storedBestLapSeconds);
+  expect(debug.ghostReplay.currentSampleCount).toBeGreaterThan(0);
+  expect(debug.ghostReplay.x).not.toBeNull();
+  expect(debug.ghostReplay.z).not.toBeNull();
+  expect(debug.ghostReplay.heading).not.toBeNull();
+  expect(Number.isFinite(debug.ghostReplay.x)).toBe(true);
+  expect(Number.isFinite(debug.ghostReplay.z)).toBe(true);
+  expect(Number.isFinite(debug.ghostReplay.heading)).toBe(true);
+
+  await page.reload();
+  await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized after reload' }).toBe(true);
+  await expect(page.locator('#ghost-status')).toHaveText('No ghost');
+  debug = await readDebug(page);
+  expect(debug.ghostReplay).toMatchObject({
+    status: {
+      mode: 'empty',
+      label: 'No ghost',
+      currentSampleCount: 0,
+      bestSampleCount: 0,
+      bestLapSeconds: null,
+    },
+    visible: false,
+    currentSampleCount: 0,
+    bestSampleCount: 0,
+    bestLapSeconds: null,
+    x: null,
+    z: null,
+    heading: null,
+  });
 
   expect(consoleErrors).toEqual([]);
 });

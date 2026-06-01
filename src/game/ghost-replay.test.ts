@@ -5,6 +5,7 @@ import {
   createGhostReplayStatus,
   recordGhostReplaySample,
   resetGhostReplayState,
+  resetGhostReplayRecording,
   sampleGhostReplay,
   type GhostReplayPoseSample,
 } from './ghost-replay';
@@ -140,6 +141,28 @@ describe('ghost replay', () => {
       mode: 'new-best',
       label: 'New best ghost',
       bestLapSeconds: 9,
+    });
+  });
+
+  it('can clear only the current recording while preserving the stored best', () => {
+    const best = completeGhostReplayLap(
+      recordGhostReplaySample(
+        recordGhostReplaySample(createGhostReplayState(), sample(0, 0, 0, 0)),
+        sample(10, 100, 0, 1),
+      ),
+      10,
+      true,
+    );
+    const recording = recordGhostReplaySample(best, sample(1, 5, 0, 0.5));
+
+    const resetRecording = resetGhostReplayRecording(recording);
+
+    expect(resetRecording.currentSamples).toEqual([]);
+    expect(resetRecording.bestLap).toBe(best.bestLap);
+    expect(createGhostReplayStatus(resetRecording)).toMatchObject({
+      mode: 'best',
+      label: 'Best ghost',
+      bestLapSeconds: 10,
     });
   });
 

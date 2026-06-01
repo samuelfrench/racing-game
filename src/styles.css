@@ -259,6 +259,23 @@ input {
   font-variant-numeric: tabular-nums;
 }
 
+.ghost-line {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  color: rgb(214 230 238 / 86%);
+  white-space: nowrap;
+}
+
+#ghost-status {
+  overflow: hidden;
+  color: #36f1ff;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 #race-position[data-tone="leader"] {
   color: #ffe66b;
 }

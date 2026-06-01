@@ -6,10 +6,11 @@
 
 ## Next Improvements
 
-- [ ] Add ghost-car replay for the player's best lap.
+- [ ] Tune ghost replay visual readability after live-device feedback.
 
 ## Completed
 
+- [x] Add ghost-car replay for the player's best lap.
 - [x] Fix inverted steering direction and tune handling realism.
 - [x] Add post-race lap and sector split summary to the results panel.
 - [x] Add lap split and sector timing feedback.
