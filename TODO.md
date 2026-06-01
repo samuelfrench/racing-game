@@ -6,10 +6,11 @@
 
 ## Next Improvements
 
-- [ ] Tune post-ghost-replay track/racing feel after live-device feedback.
+- [ ] Tune braking and low-speed corner feel after live-device feedback.
 
 ## Completed
 
+- [x] Add drift smoke visual feedback for handbrake slides.
 - [x] Tune ghost replay visual readability after live-device feedback.
 - [x] Add ghost-car replay for the player's best lap.
 - [x] Fix inverted steering direction and tune handling realism.

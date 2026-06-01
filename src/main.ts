@@ -16,6 +16,7 @@ import { createOpponentGrid, getOpponentResults, stepOpponents, type OpponentSta
 import { createDefaultTrack, sampleTrackSurface, type TrackDefinition, type TrackPoint } from './game/track';
 import { getTrackLapLength, projectPointOntoTrack, type TrackProjection } from './game/track-progress';
 import { computeSpeedEffects, type SpeedEffectState } from './game/speed-effects';
+import { computeDriftSmokeEffect, type DriftSmokeEffect } from './game/drift-smoke';
 import { createInitialVehicleState, stepVehicle, type VehicleState } from './game/vehicle';
 import { createRaceAudioEngine, type RaceAudioDebugState } from './game/audio-engine';
 import {
@@ -138,6 +139,7 @@ type DebugState = {
   carZ: number;
   carHeading: number;
   speedEffects: Pick<SpeedEffectState, 'intensity' | 'cameraFov' | 'vignetteOpacity' | 'streakOpacity'>;
+  driftSmoke: DriftSmokeEffect;
   audio: RaceAudioDebugState;
   trackArt: TrackArtDebug;
   settings: GameSettings;
@@ -222,6 +224,11 @@ type GhostReplayVisualAidDebugState = {
 type GhostVisualAid = {
   readonly mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   readonly material: THREE.MeshBasicMaterial;
+};
+
+type DriftSmokeVisual = {
+  readonly group: THREE.Group;
+  readonly puffs: readonly THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>[];
 };
 
 type TrackArtDebug = {
@@ -357,6 +364,13 @@ let speedEffects: SpeedEffectState = computeSpeedEffects({
   deltaSeconds: 0,
   previousIntensity: 0,
 });
+let driftSmokeEffect: DriftSmokeEffect = computeDriftSmokeEffect({
+  speed: 0,
+  drift: 0,
+  handbrake: false,
+  deltaSeconds: 0,
+  previousIntensity: 0,
+});
 const audioEngine = createRaceAudioEngine();
 const audioMixInput = {
   phase: session.phase,
@@ -401,6 +415,8 @@ const trackArt = addTracksideObjects(world, track);
 scene.add(world);
 const car = buildCar();
 scene.add(car);
+const driftSmoke = buildDriftSmokeVisual();
+car.add(driftSmoke.group);
 const ghostCar = buildGhostCar();
 scene.add(ghostCar);
 const ghostVisualAid = buildGhostVisualAid();
@@ -448,6 +464,13 @@ function loop(timestamp = performance.now()): void {
       previousIntensity: speedEffects.intensity,
     }),
   );
+  driftSmokeEffect = computeDriftSmokeEffect({
+    speed: session.phase === 'racing' ? vehicle.speed : 0,
+    drift: session.phase === 'racing' ? vehicle.drift : 0,
+    handbrake: session.phase === 'racing' && input.handbrake,
+    deltaSeconds,
+    previousIntensity: driftSmokeEffect.intensity,
+  });
 
   if (session.phase === 'racing') {
     elapsedSeconds += deltaSeconds;
@@ -488,6 +511,7 @@ function loop(timestamp = performance.now()): void {
   }
 
   updateCarMesh(car, vehicle);
+  updateDriftSmoke(deltaSeconds);
   updateOpponentMeshes();
   updateGhostReplayMesh();
   updateCheckpoints(progress);
@@ -861,9 +885,90 @@ function buildGhostVisualAid(): GhostVisualAid {
   return { mesh, material };
 }
 
+function buildDriftSmokeVisual(): DriftSmokeVisual {
+  const group = new THREE.Group();
+  group.visible = false;
+  const geometry = new THREE.CircleGeometry(1, 28);
+  const puffs: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>[] = [];
+
+  for (let index = 0; index < 6; index += 1) {
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xd8eef1,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const puff = new THREE.Mesh(geometry, material);
+    puff.rotation.x = -Math.PI / 2;
+    puff.renderOrder = 3;
+    puff.visible = false;
+    group.add(puff);
+    puffs.push(puff);
+  }
+
+  return { group, puffs };
+}
+
 function updateCarMesh(carMesh: THREE.Group, state: VehicleState): void {
   carMesh.position.set(state.position.x, 0.12, state.position.z);
   carMesh.rotation.set(0, state.heading, -state.lateralVelocity * 0.016);
+}
+
+function updateDriftSmoke(deltaSeconds: number): void {
+  const visiblePuffs = driftSmokeEffect.visiblePuffs;
+  driftSmoke.group.visible = visiblePuffs > 0;
+
+  if (visiblePuffs === 0) {
+    for (const puff of driftSmoke.puffs) {
+      puff.visible = false;
+      puff.material.opacity = 0;
+    }
+    return;
+  }
+
+  const driftDirection = Math.sign(vehicle.lateralVelocity) || 1;
+  const animationAmount = settings.reducedMotion ? 0.25 : 1;
+  const time = elapsedSeconds * animationAmount;
+
+  driftSmoke.puffs.forEach((puff, index) => {
+    const visible = index < visiblePuffs;
+    puff.visible = visible;
+    if (!visible) {
+      puff.material.opacity = 0;
+      return;
+    }
+
+    const side = index % 2 === 0 ? -1 : 1;
+    const row = Math.floor(index / 2);
+    const age = row / 2;
+    const sideSpread = side * (1.35 + row * 0.52);
+    const rearTrail = -3.05 - row * 0.72 - driftSmokeEffect.intensity * 0.48;
+    const sway = Math.sin(time * 5.2 + index * 1.8) * 0.16 * animationAmount;
+    const lift = 0.22 + row * 0.06;
+    const scale = driftSmokeEffect.scale * (1 + age * 0.34);
+    const opacityFade = 1 - age * 0.26;
+
+    puff.position.set(
+      sideSpread + driftDirection * row * 0.22 + sway,
+      lift,
+      rearTrail,
+    );
+    puff.scale.setScalar(scale);
+    puff.rotation.z = time * (0.35 + index * 0.04) * side;
+    puff.material.opacity = driftSmokeEffect.opacity * opacityFade;
+  });
+
+  if (settings.reducedMotion) {
+    driftSmoke.group.position.set(0, 0, 0);
+    return;
+  }
+
+  driftSmoke.group.position.set(
+    Math.sin(elapsedSeconds * 9.1) * 0.08 * driftSmokeEffect.intensity,
+    0,
+    -Math.min(0.35, deltaSeconds * driftSmokeEffect.intensity * 2),
+  );
 }
 
 function updateOpponentMeshes(): void {
@@ -1815,6 +1920,14 @@ function resetRace(): void {
     previousIntensity: 0,
   });
   speedEffects = applyMotionSettings(settings, speedEffects);
+  driftSmokeEffect = computeDriftSmokeEffect({
+    speed: 0,
+    drift: 0,
+    handbrake: false,
+    deltaSeconds: 0,
+    previousIntensity: 0,
+  });
+  updateDriftSmoke(0);
   writeCurrentAudioSnapshot(currentAudioSnapshot);
   writeRaceAudioSnapshot(lastAudioSnapshot, currentAudioSnapshot);
   audioMixInput.phase = session.phase;
@@ -2120,6 +2233,7 @@ function createDebugState(): DebugState {
       vignetteOpacity: speedEffects.vignetteOpacity,
       streakOpacity: speedEffects.streakOpacity,
     },
+    driftSmoke: { ...driftSmokeEffect },
     audio: audioEngine.getDebugState(),
     trackArt: trackArt.debug,
     settings: { ...settings },

@@ -24,6 +24,12 @@ type DebugState = {
     vignetteOpacity: number;
     streakOpacity: number;
   };
+  driftSmoke: {
+    intensity: number;
+    opacity: number;
+    scale: number;
+    visiblePuffs: number;
+  };
   audio: {
     available: boolean;
     started: boolean;
@@ -343,6 +349,14 @@ for (const viewport of viewports) {
         message: 'tire skid audio responds to handbrake drift',
       })
       .toBeGreaterThan(0);
+    await expect
+      .poll(() => readDebug(page).then((debug) => debug.driftSmoke.visiblePuffs), {
+        message: 'held handbrake drift shows rear tire smoke',
+      })
+      .toBeGreaterThan(0);
+    const driftSmokeDebug = await readDebug(page);
+    expect(driftSmokeDebug.driftSmoke.opacity).toBeGreaterThan(0.18);
+    expect(driftSmokeDebug.driftSmoke.scale).toBeGreaterThan(1);
     await page.keyboard.up('ArrowLeft');
     await page.keyboard.up('Space');
     await page.keyboard.up('Shift');
