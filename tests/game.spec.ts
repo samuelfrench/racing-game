@@ -17,6 +17,7 @@ type DebugState = {
   checkpoint: string;
   carX: number;
   carZ: number;
+  carHeading: number;
   speedEffects: {
     intensity: number;
     cameraFov: number;
@@ -423,6 +424,29 @@ test('post-race lap and sector split summary shows results, debug match, reset, 
       await expect(page.locator('#touch-controls')).toBeVisible();
     }
   }
+
+  expect(consoleErrors).toEqual([]);
+});
+
+test('keyboard steering follows chase-camera left and right direction', async ({ page }) => {
+  const consoleErrors = collectConsoleErrors(page);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  const left = await runSteeringDirectionProbe(page, 'ArrowLeft');
+  expect(Number.isFinite(left.startHeading)).toBe(true);
+  expect(Number.isFinite(left.endHeading)).toBe(true);
+  expect(left.headingDelta).toBeGreaterThan(0.06);
+  expect(Math.abs(left.headingDelta)).toBeLessThan(1.45);
+  expect(left.travelDistance).toBeGreaterThan(8);
+
+  const right = await runSteeringDirectionProbe(page, 'ArrowRight');
+  expect(Number.isFinite(right.startHeading)).toBe(true);
+  expect(Number.isFinite(right.endHeading)).toBe(true);
+  expect(right.headingDelta).toBeLessThan(-0.06);
+  expect(Math.abs(right.headingDelta)).toBeLessThan(1.45);
+  expect(right.travelDistance).toBeGreaterThan(8);
+  expect(Math.abs(Math.abs(left.headingDelta) - Math.abs(right.headingDelta))).toBeLessThan(0.25);
 
   expect(consoleErrors).toEqual([]);
 });
@@ -858,6 +882,40 @@ async function readSplitSummaryHudMatch(page: Page): Promise<boolean> {
       sectorChips.length === expectedSectorCount
     );
   });
+}
+
+async function runSteeringDirectionProbe(
+  page: Page,
+  key: 'ArrowLeft' | 'ArrowRight',
+): Promise<{
+  readonly startHeading: number;
+  readonly endHeading: number;
+  readonly headingDelta: number;
+  readonly travelDistance: number;
+}> {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => hasDebugState(page), { message: `debug state is initialized before ${key}` }).toBe(true);
+  await page.locator('#start-button').click();
+  await expect.poll(() => readDebug(page).then((debug) => debug.phase)).toBe('countdown');
+  await page.keyboard.down('ArrowUp');
+  await expect.poll(() => readDebug(page).then((debug) => debug.phase), { timeout: 5_000 }).toBe('racing');
+  const start = await readDebug(page);
+  await page.keyboard.down(key);
+  await page.waitForTimeout(800);
+  await page.keyboard.up(key);
+  await page.keyboard.up('ArrowUp');
+  const end = await readDebug(page);
+
+  return {
+    startHeading: start.carHeading,
+    endHeading: end.carHeading,
+    headingDelta: normalizeRadians(end.carHeading - start.carHeading),
+    travelDistance: Math.hypot(end.carX - start.carX, end.carZ - start.carZ),
+  };
+}
+
+function normalizeRadians(value: number): number {
+  return Math.atan2(Math.sin(value), Math.cos(value));
 }
 
 function collectConsoleErrors(page: Page): string[] {

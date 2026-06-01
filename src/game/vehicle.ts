@@ -32,7 +32,9 @@ const aeroDrag = 0.018;
 const boostAcceleration = 18;
 const boostFuelUsePerSecond = 0.42;
 const boostFuelRecoveryPerSecond = 0.08;
-const turnRateRadians = 2.8;
+const turnRateRadians = 1.75;
+const fullSteeringSpeed = 30;
+const highSpeedUndersteerStart = 38;
 
 export function createInitialVehicleState(): VehicleState {
   return {
@@ -52,8 +54,6 @@ export function stepVehicle(state: VehicleState, input: VehicleInput): VehicleSt
   const steer = clamp(input.steer, -1, 1);
   const trackGrip = clamp(input.trackGrip, 0.15, 1.25);
   const boostActive = input.boost && state.boostFuel > 0 && throttle > 0;
-  const handbrakeGrip = input.handbrake ? 0.48 : 1;
-  const effectiveGrip = trackGrip * handbrakeGrip;
 
   const forwardAcceleration = throttle * throttleAcceleration;
   const braking = brake * (state.speed > 0 ? brakeDeceleration : reverseAcceleration);
@@ -65,12 +65,26 @@ export function stepVehicle(state: VehicleState, input: VehicleInput): VehicleSt
     maxForwardSpeed,
   );
 
-  const speedFactor = clamp(Math.abs(nextSpeed) / 32, 0, 1);
-  const headingDelta = steer * turnRateRadians * speedFactor * effectiveGrip * deltaSeconds;
+  const absSpeed = Math.abs(nextSpeed);
+  const speedDirection = nextSpeed < 0 ? -1 : 1;
+  const turnDirection = -steer;
+  const lowSpeedSteering = clamp(absSpeed / fullSteeringSpeed, 0, 1);
+  const highSpeedUndersteer = lerp(
+    1,
+    0.46,
+    clamp((absSpeed - highSpeedUndersteerStart) / (maxForwardSpeed - highSpeedUndersteerStart), 0, 1),
+  );
+  const gripSteering = lerp(0.5, 1, clamp(trackGrip, 0, 1));
+  const handbrakeRotation = input.handbrake ? 1.12 : 1;
+  const steeringAuthority = lowSpeedSteering * highSpeedUndersteer * gripSteering * handbrakeRotation;
+  const headingDelta = turnDirection * speedDirection * turnRateRadians * steeringAuthority * deltaSeconds;
   const heading = wrapRadians(state.heading + headingDelta);
 
-  const slipTarget = steer * nextSpeed * (input.handbrake ? 0.58 : 0.12) * (1.15 - clamp(trackGrip, 0, 1));
-  const lateralResponsiveness = input.handbrake ? 7 : 11;
+  const speedSlip = clamp((absSpeed - 18) / 54, 0, 1) * 0.11;
+  const handbrakeSlip = input.handbrake ? 0.42 : 0;
+  const lowGripSlip = (1 - clamp(trackGrip, 0, 1)) * 0.28;
+  const slipTarget = -turnDirection * absSpeed * (speedSlip + handbrakeSlip + lowGripSlip);
+  const lateralResponsiveness = input.handbrake ? 6.2 : 8.8;
   const lateralVelocity = approach(state.lateralVelocity, slipTarget, lateralResponsiveness * deltaSeconds);
   const drift = Math.abs(lateralVelocity) / Math.max(1, Math.abs(nextSpeed));
 
@@ -101,6 +115,10 @@ export function stepVehicle(state: VehicleState, input: VehicleInput): VehicleSt
 
 function approach(current: number, target: number, amount: number): number {
   return current + (target - current) * clamp(amount, 0, 1);
+}
+
+function lerp(start: number, end: number, amount: number): number {
+  return start + (end - start) * clamp(amount, 0, 1);
 }
 
 function wrapRadians(value: number): number {

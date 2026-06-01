@@ -10,6 +10,7 @@
 
 ## Completed
 
+- [x] Fix inverted steering direction and tune handling realism.
 - [x] Add post-race lap and sector split summary to the results panel.
 - [x] Add lap split and sector timing feedback.
 - [x] Tune race-position/minimap styling after live-device feedback.

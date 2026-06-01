@@ -124,6 +124,7 @@ type DebugState = {
   checkpoint: string;
   carX: number;
   carZ: number;
+  carHeading: number;
   speedEffects: Pick<SpeedEffectState, 'intensity' | 'cameraFov' | 'vignetteOpacity' | 'streakOpacity'>;
   audio: RaceAudioDebugState;
   trackArt: TrackArtDebug;
@@ -1842,6 +1843,7 @@ function createDebugState(): DebugState {
     checkpoint: next?.id ?? 'finish',
     carX: vehicle.position.x,
     carZ: vehicle.position.z,
+    carHeading: vehicle.heading,
     speedEffects: {
       intensity: speedEffects.intensity,
       cameraFov: speedEffects.cameraFov,
