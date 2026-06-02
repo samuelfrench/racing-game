@@ -70,6 +70,37 @@ describe('opponents', () => {
     expect(opponents[0].speed).toBeLessThanOrEqual(opponents[0].targetSpeed);
   });
 
+  it('adds passing pressure when the player opens a gap without changing base target speed', () => {
+    const track = createDefaultTrack();
+    const [leader] = createOpponentGrid(track, 1);
+    const nearTarget = {
+      ...leader,
+      speed: leader.targetSpeed - 2,
+      distanceTraveled: 140,
+    };
+
+    const baseline = stepOpponents([nearTarget], track, 0.5, true, 6);
+    const pressured = stepOpponents([nearTarget], track, 0.5, true, 6, {
+      playerDistance: 280,
+    });
+    const playerBehind = stepOpponents([nearTarget], track, 0.5, true, 6, {
+      playerDistance: 110,
+    });
+
+    expect(baseline[0].speed).toBe(leader.targetSpeed);
+    expect(baseline[0].pressureBonus).toBe(0);
+    expect(baseline[0].peakPressureBonus).toBe(0);
+    expect(pressured[0].targetSpeed).toBe(leader.targetSpeed);
+    expect(pressured[0].pressureBonus).toBeGreaterThan(0);
+    expect(pressured[0].pressureBonus).toBeLessThanOrEqual(7);
+    expect(pressured[0].peakPressureBonus).toBe(pressured[0].pressureBonus);
+    expect(pressured[0].speed).toBeGreaterThan(baseline[0].speed);
+    expect(pressured[0].speed).toBeLessThanOrEqual(leader.targetSpeed + 7);
+    expect(playerBehind[0].pressureBonus).toBe(0);
+    expect(playerBehind[0].peakPressureBonus).toBe(0);
+    expect(playerBehind[0].speed).toBe(leader.targetSpeed);
+  });
+
   it('finishes opponents and returns sorted finished results', () => {
     const track = createDefaultTrack();
     let opponents = createOpponentGrid(track, 1);

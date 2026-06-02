@@ -6,10 +6,11 @@
 
 ## Next Improvements
 
-- [ ] Tune opponent cornering lines and passing pressure after live-device feedback.
+- [ ] Tune opponent cornering lines after live-device feedback.
 
 ## Completed
 
+- [x] Add opponent passing pressure when the player opens a gap.
 - [x] Improve low-speed steering response under throttle and braking.
 - [x] Add drift smoke visual feedback for handbrake slides.
 - [x] Tune ghost replay visual readability after live-device feedback.

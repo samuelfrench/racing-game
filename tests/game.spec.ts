@@ -178,6 +178,8 @@ type DebugState = {
     lap: number;
     speed: number;
     targetSpeed: number;
+    pressureBonus: number;
+    peakPressureBonus: number;
     finishedAtSeconds: number | null;
   }[];
   results: readonly {
@@ -274,6 +276,8 @@ for (const viewport of viewports) {
     expect(initialDebug.trackArt.lightMasts).toBeGreaterThanOrEqual(10);
     expect(initialDebug.trackArt.speedStreaks).toBeGreaterThanOrEqual(12);
     expect(initialDebug.racePosition.participants).toHaveLength(4);
+    expect(initialDebug.opponents.every((opponent) => opponent.pressureBonus === 0)).toBe(true);
+    expect(initialDebug.opponents.every((opponent) => opponent.peakPressureBonus === 0)).toBe(true);
     expect(initialDebug.minimap).toMatchObject({
       canvasWidth: 168,
       canvasHeight: 104,
@@ -431,6 +435,11 @@ test('post-race lap and sector split summary shows results, debug match, reset, 
     await expect.poll(() => readDebug(page).then((debug) => debug.phase)).toBe('finished');
     await expect(page.locator('#results-panel')).toBeVisible();
     await expect(page.locator('#results-list li')).toHaveCount(4);
+    await expect
+      .poll(() => readDebug(page).then((debug) => debug.opponents.some((opponent) => opponent.peakPressureBonus > 0)), {
+        message: 'projected opponent finish simulation records passing pressure',
+      })
+      .toBe(true);
     await expect(page.locator('#split-summary')).toBeVisible();
     await expect(page.locator('#lap-splits')).toContainText('L1');
     await expect(page.locator('#lap-splits')).toContainText('L2');

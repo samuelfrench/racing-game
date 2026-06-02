@@ -12,9 +12,15 @@ export type OpponentState = {
   readonly lap: number;
   readonly speed: number;
   readonly targetSpeed: number;
+  readonly pressureBonus: number;
+  readonly peakPressureBonus: number;
   readonly acceleration: number;
   readonly totalLaps: number;
   readonly finishedAtSeconds: number | null;
+};
+
+export type OpponentStepContext = {
+  readonly playerDistance?: number;
 };
 
 type OpponentConfig = {
@@ -48,6 +54,8 @@ export function createOpponentGrid(track: TrackDefinition, totalLaps: number): r
       lap: 1,
       speed: 0,
       targetSpeed: config.targetSpeed,
+      pressureBonus: 0,
+      peakPressureBonus: 0,
       acceleration: config.acceleration,
       totalLaps: laps,
       finishedAtSeconds: null,
@@ -61,6 +69,7 @@ export function stepOpponents(
   deltaSeconds: number,
   racing: boolean,
   elapsedSeconds: number,
+  context: OpponentStepContext = {},
 ): readonly OpponentState[] {
   const delta = Math.max(0, deltaSeconds);
   const lapLength = getTrackLapLength(track);
@@ -71,7 +80,10 @@ export function stepOpponents(
     }
 
     const finishDistance = opponent.totalLaps * lapLength;
-    const nextSpeed = approach(opponent.speed, opponent.targetSpeed, opponent.acceleration * delta);
+    const pressureBonus = computePressureBonus(opponent, context.playerDistance);
+    const peakPressureBonus = Math.max(opponent.peakPressureBonus, pressureBonus);
+    const pressureTargetSpeed = opponent.targetSpeed + pressureBonus;
+    const nextSpeed = approach(opponent.speed, pressureTargetSpeed, opponent.acceleration * delta);
     const nextDistance = opponent.distanceTraveled + nextSpeed * delta;
 
     if (nextDistance >= finishDistance) {
@@ -86,6 +98,8 @@ export function stepOpponents(
         distanceTraveled: finishDistance,
         lap: opponent.totalLaps,
         speed: nextSpeed,
+        pressureBonus,
+        peakPressureBonus,
         finishedAtSeconds,
       };
     }
@@ -99,6 +113,8 @@ export function stepOpponents(
       distanceTraveled: nextDistance,
       lap: getLapForDistance(nextDistance, lapLength, opponent.totalLaps),
       speed: nextSpeed,
+      pressureBonus,
+      peakPressureBonus,
     };
   });
 }
@@ -133,6 +149,19 @@ function getLapForDistance(distance: number, lapLength: number, totalLaps: numbe
   return Math.min(totalLaps, lap);
 }
 
+function computePressureBonus(opponent: OpponentState, playerDistance: number | undefined): number {
+  if (!Number.isFinite(playerDistance)) {
+    return 0;
+  }
+
+  const gapToPlayer = Math.max(0, (playerDistance ?? 0) - opponent.distanceTraveled);
+  const pressureStartGap = 48;
+  const pressureFullGap = 140;
+  const maxPressureBonus = 7;
+  const pressureT = clamp((gapToPlayer - pressureStartGap) / (pressureFullGap - pressureStartGap), 0, 1);
+  return Math.round(pressureT * maxPressureBonus * 100) / 100;
+}
+
 function approach(current: number, target: number, maximumStep: number): number {
   if (current < target) {
     return Math.min(target, current + maximumStep);
@@ -143,4 +172,8 @@ function approach(current: number, target: number, maximumStep: number): number 
   }
 
   return target;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }

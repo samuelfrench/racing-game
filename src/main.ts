@@ -199,6 +199,8 @@ type DebugOpponent = {
   readonly lap: number;
   readonly speed: number;
   readonly targetSpeed: number;
+  readonly pressureBonus: number;
+  readonly peakPressureBonus: number;
   readonly finishedAtSeconds: number | null;
 };
 
@@ -492,7 +494,8 @@ function loop(timestamp = performance.now()): void {
     recordGhostReplayFrame(previousProgress);
     progress = updateRaceProgress(progress, track.checkpoints, vehicle.position, elapsedSeconds);
     completeGhostReplayLapIfNeeded(previousProgress);
-    opponents = stepOpponents(opponents, track, deltaSeconds, true, elapsedSeconds);
+    const playerDistance = getPlayerRaceDistance({ progress, track, position: vehicle.position });
+    opponents = stepOpponents(opponents, track, deltaSeconds, true, elapsedSeconds, { playerDistance });
 
     if (progress.finished) {
       const playerResult: RaceResult = {
@@ -500,7 +503,8 @@ function loop(timestamp = performance.now()): void {
         name: 'You',
         finishSeconds: elapsedSeconds,
       };
-      opponents = finishRemainingOpponents(opponents, elapsedSeconds);
+      const finishDistance = getTrackLapLength(track) * progress.totalLaps;
+      opponents = finishRemainingOpponents(opponents, elapsedSeconds, finishDistance);
       session = finishRace(session, [playerResult, ...getOpponentResults(opponents)]);
       running = false;
       updateTouchControlsVisibility();
@@ -1755,7 +1759,8 @@ function finishRaceForTest(): void {
     heading: startPose.heading,
     speed: 0,
   };
-  opponents = finishRemainingOpponents(opponents, elapsedSeconds);
+  const finishDistance = getTrackLapLength(track) * progress.totalLaps;
+  opponents = finishRemainingOpponents(opponents, elapsedSeconds, finishDistance);
   session = finishRace(session, [
     {
       id: 'player',
@@ -1969,7 +1974,11 @@ function writeSettingsAudioMix(mix: RaceAudioMixTarget): RaceAudioMixTarget {
   return mix;
 }
 
-function finishRemainingOpponents(currentOpponents: readonly OpponentState[], raceElapsedSeconds: number): readonly OpponentState[] {
+function finishRemainingOpponents(
+  currentOpponents: readonly OpponentState[],
+  raceElapsedSeconds: number,
+  playerDistance: number,
+): readonly OpponentState[] {
   let simulatedOpponents = currentOpponents;
   let simulatedElapsedSeconds = raceElapsedSeconds;
   const simulationDeltaSeconds = 0.1;
@@ -1986,6 +1995,7 @@ function finishRemainingOpponents(currentOpponents: readonly OpponentState[], ra
       simulationDeltaSeconds,
       true,
       simulatedElapsedSeconds,
+      { playerDistance },
     );
   }
 
@@ -2280,6 +2290,8 @@ function createDebugState(): DebugState {
       lap: opponent.lap,
       speed: opponent.speed,
       targetSpeed: opponent.targetSpeed,
+      pressureBonus: opponent.pressureBonus,
+      peakPressureBonus: opponent.peakPressureBonus,
       finishedAtSeconds: opponent.finishedAtSeconds,
     })),
     results: session.results.map((result) => ({ ...result })),
