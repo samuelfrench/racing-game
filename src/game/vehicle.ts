@@ -19,18 +19,19 @@ export type VehicleInput = {
   readonly steer: number;
   readonly handbrake: boolean;
   readonly boost: boolean;
+  readonly boostIntensity?: number;
   readonly trackGrip: number;
 };
 
-const maxForwardSpeed = 72;
+const maxForwardSpeed = 84;
 const maxReverseSpeed = -12;
-const throttleAcceleration = 28;
+const throttleAcceleration = 32;
 const brakeDeceleration = 34;
 const reverseAcceleration = 12;
 const rollingDrag = 1.6;
-const aeroDrag = 0.018;
-const boostAcceleration = 18;
-const boostFuelUsePerSecond = 0.42;
+const aeroDrag = 0.014;
+const boostAcceleration = 62;
+const boostFuelUsePerSecond = 0.2;
 const boostFuelRecoveryPerSecond = 0.08;
 const turnRateRadians = 1.75;
 const fullSteeringSpeed = 30;
@@ -54,11 +55,13 @@ export function stepVehicle(state: VehicleState, input: VehicleInput): VehicleSt
   const brake = clamp(input.brake, 0, 1);
   const steer = clamp(input.steer, -1, 1);
   const trackGrip = clamp(input.trackGrip, 0.15, 1.25);
-  const boostActive = input.boost && state.boostFuel > 0 && throttle > 0;
+  const manualBoostActive = input.boost && state.boostFuel > 0 && throttle > 0;
+  const boostIntensity = Math.max(manualBoostActive ? 1 : 0, clamp(input.boostIntensity ?? 0, 0, 1.4));
+  const boostActive = boostIntensity > 0 && throttle > 0;
 
   const forwardAcceleration = throttle * throttleAcceleration;
   const braking = brake * (state.speed > 0 ? brakeDeceleration : reverseAcceleration);
-  const boost = boostActive ? boostAcceleration : 0;
+  const boost = boostActive ? boostAcceleration * boostIntensity : 0;
   const drag = Math.sign(state.speed) * (rollingDrag + state.speed * state.speed * aeroDrag);
   const nextSpeed = clamp(
     state.speed + (forwardAcceleration + boost - braking - drag) * deltaSeconds,
@@ -103,7 +106,7 @@ export function stepVehicle(state: VehicleState, input: VehicleInput): VehicleSt
   };
 
   const boostFuel = clamp(
-    state.boostFuel + (boostActive ? -boostFuelUsePerSecond : boostFuelRecoveryPerSecond) * deltaSeconds,
+    state.boostFuel + (manualBoostActive ? -boostFuelUsePerSecond : boostFuelRecoveryPerSecond) * deltaSeconds,
     0,
     1,
   );

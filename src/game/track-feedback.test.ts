@@ -14,6 +14,8 @@ const squareTrack: TrackDefinition = {
     { x: 0, z: 100 },
   ],
   checkpoints: [],
+  boostPads: [],
+  obstacles: [],
 };
 
 function vehicle(overrides: Partial<VehicleState> = {}): VehicleState {

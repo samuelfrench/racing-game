@@ -10,6 +10,7 @@
 
 ## Completed
 
+- [x] Make the car a bit faster and add a significantly more complex track with boost pads and obstacles.
 - [x] Add start-countdown light gantry feedback after live-device feedback.
 - [x] Add finish-line visual emphasis after live-device feedback.
 - [x] Harden GitHub Actions action versions to clear the Node20 deprecation annotation.

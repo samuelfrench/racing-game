@@ -34,6 +34,42 @@ describe('vehicle physics', () => {
     expect(car.speed).toBeLessThan(16);
   });
 
+  it('reaches a slightly higher unboosted straight-line pace', () => {
+    let car = createInitialVehicleState();
+
+    for (let i = 0; i < 180; i += 1) {
+      car = stepVehicle(car, {
+        deltaSeconds: 1 / 60,
+        throttle: 1,
+        brake: 0,
+        steer: 0,
+        handbrake: false,
+        boost: false,
+        trackGrip: 1,
+      });
+    }
+
+    expect(car.speed).toBeGreaterThan(41);
+  });
+
+  it('allows boost to carry the faster tune above the old speed cap', () => {
+    let car = createInitialVehicleState();
+
+    for (let i = 0; i < 240; i += 1) {
+      car = stepVehicle(car, {
+        deltaSeconds: 1 / 60,
+        throttle: 1,
+        brake: 0,
+        steer: 0,
+        handbrake: false,
+        boost: true,
+        trackGrip: 1,
+      });
+    }
+
+    expect(car.speed).toBeGreaterThan(72);
+  });
+
   it('turns with speed, slips more with handbrake, and consumes boost', () => {
     let stable = createInitialVehicleState();
     let sliding = createInitialVehicleState();

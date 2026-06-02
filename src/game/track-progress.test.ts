@@ -17,6 +17,8 @@ const squareTrack: TrackDefinition = {
     { x: 0, z: 10 },
   ],
   checkpoints: [],
+  boostPads: [],
+  obstacles: [],
 };
 
 describe('track progress', () => {

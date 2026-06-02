@@ -13,8 +13,22 @@ import {
   type RaceSession,
 } from './game/race-session';
 import { createOpponentGrid, getOpponentResults, stepOpponents, type OpponentState } from './game/opponents';
-import { createDefaultTrack, sampleTrackSurface, type TrackDefinition, type TrackPoint } from './game/track';
-import { getTrackLapLength, projectPointOntoTrack, type TrackProjection } from './game/track-progress';
+import {
+  createDefaultTrack,
+  sampleTrackFeatureEffects,
+  sampleTrackSurface,
+  type TrackBoostPad,
+  type TrackDefinition,
+  type TrackFeatureEffects,
+  type TrackObstacle,
+  type TrackPoint,
+} from './game/track';
+import {
+  getTrackLapLength,
+  projectPointOntoTrack,
+  sampleTrackCenterlineAtDistance,
+  type TrackProjection,
+} from './game/track-progress';
 import { computeSpeedEffects, type SpeedEffectState } from './game/speed-effects';
 import { computeDriftSmokeEffect, type DriftSmokeEffect } from './game/drift-smoke';
 import { createInitialVehicleState, stepVehicle, type VehicleState } from './game/vehicle';
@@ -133,6 +147,7 @@ type DebugState = {
   frame: number;
   speed: number;
   trackFeedback: TrackFeedbackState;
+  trackFeatures: TrackFeatureDebugState;
   lap: number;
   checkpoint: string;
   carX: number;
@@ -241,6 +256,8 @@ type TrackArtDebug = {
   readonly lightMasts: number;
   readonly speedStreaks: number;
   readonly finishMarkers: number;
+  readonly boostPads: number;
+  readonly obstacles: number;
   readonly startLights: StartLightDebug;
 };
 
@@ -248,6 +265,16 @@ type StartLightDebug = {
   readonly activeRedLights: number;
   readonly greenLit: boolean;
   readonly state: 'idle' | 'countdown' | 'go';
+};
+
+type TrackFeatureDebugState = {
+  readonly activeBoostPadId: string | null;
+  readonly activeObstacleId: string | null;
+  readonly lastBoostPadId: string | null;
+  readonly lastObstacleId: string | null;
+  readonly boostIntensity: number;
+  readonly obstacleSeverity: number;
+  readonly lastObstacleSpeedDelta: number;
 };
 
 type TrackArtMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
@@ -269,6 +296,8 @@ declare global {
     __racingGameDebug?: DebugState;
     __racingGameTestControls?: {
       finishRace: () => void;
+      placeOnBoostPad: (index?: number) => void;
+      placeOnObstacle: (index?: number) => void;
     };
   }
 }
@@ -351,6 +380,7 @@ let vehicle = createVehicleAtStart();
 let progress = createRaceProgress(track.checkpoints, 3);
 let session: RaceSession = createRaceSession();
 let trackFeedback = createTrackFeedbackState();
+let trackFeatures: TrackFeatureDebugState = createTrackFeatureDebugState();
 let opponents: readonly OpponentState[] = createOpponentGrid(track, progress.totalLaps);
 let running = false;
 let elapsedSeconds = 0;
@@ -469,7 +499,13 @@ function loop(timestamp = performance.now()): void {
   }
 
   const input = readInput();
-  const boostActive = session.phase === 'racing' && input.boost && input.throttle > 0 && vehicle.boostFuel > 0;
+  const featureEffects = session.phase === 'racing'
+    ? sampleTrackFeatureEffects(track, vehicle.position.x, vehicle.position.z)
+    : { boostPad: null, obstacle: null };
+  trackFeatures = updateTrackFeatureDebugState(trackFeatures, featureEffects, 0);
+  const manualBoostActive = input.boost && input.throttle > 0 && vehicle.boostFuel > 0;
+  const padBoostActive = trackFeatures.boostIntensity > 0 && input.throttle > 0;
+  const boostActive = session.phase === 'racing' && (manualBoostActive || padBoostActive);
   speedEffects = applyMotionSettings(
     settings,
     computeSpeedEffects({
@@ -494,8 +530,15 @@ function loop(timestamp = performance.now()): void {
     vehicle = stepVehicle(vehicle, {
       ...input,
       deltaSeconds,
+      boostIntensity: trackFeatures.boostIntensity,
       trackGrip: surface.grip,
     });
+    const obstacleResult = applyObstaclePenalty(vehicle, trackFeatures.obstacleSeverity, deltaSeconds);
+    vehicle = obstacleResult.vehicle;
+    trackFeatures = {
+      ...trackFeatures,
+      lastObstacleSpeedDelta: obstacleResult.speedDelta,
+    };
     const feedbackResult = updateTrackFeedback(trackFeedback, {
       track,
       vehicle,
@@ -671,6 +714,14 @@ function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinitio
   const startLightOffMaterial = new THREE.MeshBasicMaterial({ color: 0x231217 });
   const startLightRedMaterial = new THREE.MeshBasicMaterial({ color: 0xff335f });
   const startLightGreenMaterial = new THREE.MeshBasicMaterial({ color: 0x63f7a4 });
+  const boostPadMaterial = new THREE.MeshBasicMaterial({
+    color: 0x63f7a4,
+    opacity: 0.74,
+    transparent: true,
+  });
+  const boostPadStripeMaterial = new THREE.MeshBasicMaterial({ color: 0xf8fbff });
+  const obstacleMaterial = new THREE.MeshBasicMaterial({ color: 0xd43f2f });
+  const obstacleBandMaterial = new THREE.MeshBasicMaterial({ color: 0xffe66b });
   const streakMaterial = new THREE.MeshBasicMaterial({
     color: 0x9af7ff,
     opacity: 0,
@@ -692,6 +743,14 @@ function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinitio
     black: finishBlackMaterial,
     white: finishWhiteMaterial,
     startLights,
+  });
+  addBoostPadMarkers(group, trackDefinition.boostPads, {
+    pad: boostPadMaterial,
+    stripe: boostPadStripeMaterial,
+  });
+  addObstacleMarkers(group, trackDefinition.obstacles, {
+    body: obstacleMaterial,
+    band: obstacleBandMaterial,
   });
 
   forEachSegment(trackDefinition.centerline, (start, end, index) => {
@@ -828,6 +887,8 @@ function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinitio
       lightMasts: lightMasts.length,
       speedStreaks: speedStreaks.length,
       finishMarkers,
+      boostPads: trackDefinition.boostPads.length,
+      obstacles: trackDefinition.obstacles.length,
       startLights: {
         activeRedLights: 0,
         greenLit: false,
@@ -856,6 +917,72 @@ function createStartLightMeshes(materials: {
   }
 
   return { redLights, greenLight };
+}
+
+function addBoostPadMarkers(
+  group: THREE.Group,
+  boostPads: readonly TrackBoostPad[],
+  materials: {
+    readonly pad: THREE.MeshBasicMaterial;
+    readonly stripe: THREE.MeshBasicMaterial;
+  },
+): void {
+  for (const pad of boostPads) {
+    const marker = new THREE.Group();
+    marker.name = `boost-pad-${pad.id}`;
+
+    const base = new THREE.Mesh(
+      new THREE.CylinderGeometry(pad.radius, pad.radius, 0.18, 36),
+      materials.pad,
+    );
+    base.position.set(0, 0.26, 0);
+    marker.add(base);
+
+    for (const offset of [-2.4, 0, 2.4]) {
+      const stripe = new THREE.Mesh(
+        new THREE.BoxGeometry(pad.radius * 1.1, 0.12, 0.72),
+        materials.stripe,
+      );
+      stripe.position.set(0, 0.4, offset);
+      stripe.rotation.y = -0.34;
+      marker.add(stripe);
+    }
+
+    marker.position.set(pad.x, 0, pad.z);
+    group.add(marker);
+  }
+}
+
+function addObstacleMarkers(
+  group: THREE.Group,
+  obstacles: readonly TrackObstacle[],
+  materials: {
+    readonly body: THREE.MeshBasicMaterial;
+    readonly band: THREE.MeshBasicMaterial;
+  },
+): void {
+  for (const obstacle of obstacles) {
+    const marker = new THREE.Group();
+    marker.name = `obstacle-${obstacle.id}`;
+
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(obstacle.radius * 1.1, 2.6, obstacle.radius * 0.92),
+      materials.body,
+    );
+    body.position.set(0, 1.3, 0);
+    marker.add(body);
+
+    const band = new THREE.Mesh(
+      new THREE.BoxGeometry(obstacle.radius * 1.2, 0.42, obstacle.radius),
+      materials.band,
+    );
+    band.position.set(0, 2.35, 0);
+    marker.add(band);
+
+    marker.position.set(obstacle.x, 0, obstacle.z);
+    marker.rotation.y = seededNoise(obstacle.x * 0.17 + obstacle.z * 0.11) * Math.PI;
+    group.add(marker);
+  }
 }
 
 function addFinishLineMarkers(
@@ -1924,7 +2051,55 @@ function setupDevTestControls(): void {
 
   window.__racingGameTestControls = {
     finishRace: finishRaceForTest,
+    placeOnBoostPad: placeOnBoostPadForTest,
+    placeOnObstacle: placeOnObstacleForTest,
   };
+}
+
+function placeOnBoostPadForTest(index = 0): void {
+  const boostPad = getFeatureByIndex(track.boostPads, index);
+  if (!boostPad) {
+    return;
+  }
+  placeVehicleOnFeatureForTest(boostPad, 30);
+}
+
+function placeOnObstacleForTest(index = 0): void {
+  const obstacle = getFeatureByIndex(track.obstacles, index);
+  if (!obstacle) {
+    return;
+  }
+  placeVehicleOnFeatureForTest(obstacle, 24);
+}
+
+function getFeatureByIndex<TFeature>(
+  features: readonly TFeature[],
+  index: number,
+): TFeature | null {
+  if (features.length === 0) {
+    return null;
+  }
+  return features[Math.trunc(clamp(index, 0, features.length - 1))] ?? null;
+}
+
+function placeVehicleOnFeatureForTest(feature: TrackPoint, speed: number): void {
+  const projection = projectPointOntoTrack(track, feature);
+  const centerlineSample = sampleTrackCenterlineAtDistance(track, projection.distanceAlongLap);
+  vehicle = {
+    ...vehicle,
+    position: { x: feature.x, z: feature.z },
+    heading: centerlineSample.heading,
+    speed,
+    lateralVelocity: 0,
+    drift: 0,
+  };
+  trackFeatures = updateTrackFeatureDebugState(
+    trackFeatures,
+    sampleTrackFeatureEffects(track, feature.x, feature.z),
+    0,
+  );
+  updateCarMesh(car, vehicle);
+  window.__racingGameDebug = createDebugState();
 }
 
 function finishRaceForTest(): void {
@@ -1957,6 +2132,7 @@ function finishRaceForTest(): void {
   ]);
   running = false;
   trackFeedback = createTrackFeedbackState();
+  trackFeatures = createTrackFeatureDebugState();
   hud.startPanel.classList.add('hidden');
   updateTouchControlsVisibility();
   updateGhostReplayMesh();
@@ -2096,6 +2272,7 @@ function resetRace(): void {
   progress = createRaceProgress(track.checkpoints, 3);
   session = resetRaceSession(session);
   trackFeedback = createTrackFeedbackState();
+  trackFeatures = createTrackFeatureDebugState();
   opponents = createOpponentGrid(track, progress.totalLaps);
   ghostReplay = resetGhostReplayRecording(ghostReplay);
   ghostReplayStatus = createGhostReplayStatus(ghostReplay);
@@ -2158,6 +2335,67 @@ function writeCurrentAudioSnapshot(target: RaceAudioSnapshotTarget): RaceAudioSn
 function writeSettingsAudioMix(mix: RaceAudioMixTarget): RaceAudioMixTarget {
   mix.masterGain = settings.muted ? 0 : mix.masterGain * settings.masterVolume;
   return mix;
+}
+
+function createTrackFeatureDebugState(): TrackFeatureDebugState {
+  return {
+    activeBoostPadId: null,
+    activeObstacleId: null,
+    lastBoostPadId: null,
+    lastObstacleId: null,
+    boostIntensity: 0,
+    obstacleSeverity: 0,
+    lastObstacleSpeedDelta: 0,
+  };
+}
+
+function updateTrackFeatureDebugState(
+  previous: TrackFeatureDebugState,
+  effects: TrackFeatureEffects,
+  lastObstacleSpeedDelta: number,
+): TrackFeatureDebugState {
+  const activeBoostPadId = effects.boostPad?.id ?? null;
+  const activeObstacleId = effects.obstacle?.id ?? null;
+  return {
+    activeBoostPadId,
+    activeObstacleId,
+    lastBoostPadId: activeBoostPadId ?? previous.lastBoostPadId,
+    lastObstacleId: activeObstacleId ?? previous.lastObstacleId,
+    boostIntensity: roundFeatureNumber(effects.boostPad?.strength ?? 0),
+    obstacleSeverity: roundFeatureNumber(effects.obstacle?.severity ?? 0),
+    lastObstacleSpeedDelta: roundFeatureNumber(lastObstacleSpeedDelta),
+  };
+}
+
+function applyObstaclePenalty(
+  state: VehicleState,
+  obstacleSeverity: number,
+  deltaSeconds: number,
+): {
+  readonly vehicle: VehicleState;
+  readonly speedDelta: number;
+} {
+  const severity = clamp(obstacleSeverity, 0, 1);
+  if (severity === 0 || Math.abs(state.speed) < 0.2) {
+    return { vehicle: state, speedDelta: 0 };
+  }
+
+  const speedBefore = state.speed;
+  const speedLoss = Math.min(Math.abs(state.speed), severity * 52 * clamp(deltaSeconds, 0, 0.05));
+  const speed = state.speed - Math.sign(state.speed) * speedLoss;
+  return {
+    vehicle: {
+      ...state,
+      speed,
+      lateralVelocity: state.lateralVelocity * (1 - severity * 0.08),
+      drift: state.drift * (1 + severity * 0.12),
+    },
+    speedDelta: speed - speedBefore,
+  };
+}
+
+function roundFeatureNumber(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 function finishRemainingOpponents(
@@ -2413,6 +2651,7 @@ function createDebugState(): DebugState {
     frame,
     speed: vehicle.speed,
     trackFeedback: { ...trackFeedback },
+    trackFeatures: { ...trackFeatures },
     lap: progress.currentLap,
     checkpoint: next?.id ?? 'finish',
     carX: vehicle.position.x,

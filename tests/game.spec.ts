@@ -48,11 +48,22 @@ type DebugState = {
     lightMasts: number;
     speedStreaks: number;
     finishMarkers: number;
+    boostPads: number;
+    obstacles: number;
     startLights: {
       activeRedLights: number;
       greenLit: boolean;
       state: 'idle' | 'countdown' | 'go';
     };
+  };
+  trackFeatures: {
+    activeBoostPadId: string | null;
+    activeObstacleId: string | null;
+    lastBoostPadId: string | null;
+    lastObstacleId: string | null;
+    boostIntensity: number;
+    obstacleSeverity: number;
+    lastObstacleSpeedDelta: number;
   };
   settings: {
     graphicsQuality: 'high' | 'balanced' | 'low';
@@ -203,6 +214,8 @@ declare global {
   interface Window {
     __racingGameTestControls?: {
       finishRace: () => void;
+      placeOnBoostPad: (index?: number) => void;
+      placeOnObstacle: (index?: number) => void;
     };
   }
 }
@@ -232,7 +245,7 @@ for (const viewport of viewports) {
     await expect(page.locator('#race-position')).toHaveText(/^P[1-4]\/4$/);
     await expect(page.locator('#race-gap')).toHaveText(/^(?:LEAD|GAP) \d+m$|^ALONGSIDE$|^FINISH$/);
     await expect(page.locator('#lap-time')).toBeVisible();
-    await expect(page.locator('#sector-label')).toHaveText(/^S[1-5]$/);
+    await expect(page.locator('#sector-label')).toHaveText(/^S[1-8]$/);
     await expect(page.locator('#sector-time')).toBeVisible();
     await expect(page.locator('#sector-delta')).toBeVisible();
     await expect(page.locator('#minimap-canvas')).toBeVisible();
@@ -260,7 +273,7 @@ for (const viewport of viewports) {
       })
       .toBe(true);
     await expect.poll(() => readDebug(page).then((debug) => debug.minimap.progressRatio)).toBeGreaterThanOrEqual(0);
-    await expect.poll(() => readDebug(page).then((debug) => debug.timing.currentSectorLabel)).toMatch(/^S[1-5]$/);
+    await expect.poll(() => readDebug(page).then((debug) => debug.timing.currentSectorLabel)).toMatch(/^S[1-8]$/);
     await expect
       .poll(() => readDebug(page).then((debug) => debug.racePosition.position), {
         message: 'player race position is in the four-car field',
@@ -287,10 +300,20 @@ for (const viewport of viewports) {
     expect(initialDebug.trackArt.lightMasts).toBeGreaterThanOrEqual(10);
     expect(initialDebug.trackArt.speedStreaks).toBeGreaterThanOrEqual(12);
     expect(initialDebug.trackArt.finishMarkers).toBeGreaterThanOrEqual(16);
+    expect(initialDebug.trackArt.boostPads).toBeGreaterThanOrEqual(4);
+    expect(initialDebug.trackArt.obstacles).toBeGreaterThanOrEqual(5);
     expect(initialDebug.trackArt.startLights).toEqual({
       activeRedLights: 0,
       greenLit: false,
       state: 'idle',
+    });
+    expect(initialDebug.trackFeatures).toMatchObject({
+      activeBoostPadId: null,
+      activeObstacleId: null,
+      lastBoostPadId: null,
+      lastObstacleId: null,
+      boostIntensity: 0,
+      obstacleSeverity: 0,
     });
     expect(initialDebug.racePosition.participants).toHaveLength(4);
     expect(initialDebug.opponents.every((opponent) => opponent.pressureBonus === 0)).toBe(true);
@@ -428,6 +451,64 @@ test('timing HUD stays in bounds at tablet breakpoint edge widths', async ({ pag
     await expectElementsNotToOverlap(page, ['#lap-time', '#sector-label', '#sector-time', '#sector-delta'], '#minimap-canvas');
   }
 
+  expect(consoleErrors).toEqual([]);
+});
+
+test('boost pads and obstacles are active gameplay features', async ({ page }) => {
+  const consoleErrors = collectConsoleErrors(page);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
+  await expect
+    .poll(() => page.evaluate(() => typeof window.__racingGameTestControls?.placeOnBoostPad), {
+      message: 'boost-pad placement test control is installed',
+    })
+    .toBe('function');
+  await expect
+    .poll(() => page.evaluate(() => typeof window.__racingGameTestControls?.placeOnObstacle), {
+      message: 'obstacle placement test control is installed',
+    })
+    .toBe('function');
+
+  await page.locator('#start-button').click();
+  await expect.poll(() => readDebug(page).then((debug) => debug.phase), { timeout: 5_000 }).toBe('racing');
+
+  await page.evaluate(() => window.__racingGameTestControls?.placeOnBoostPad(0));
+  await page.keyboard.down('ArrowUp');
+  await expect
+    .poll(() => readDebug(page).then((debug) => debug.trackFeatures.activeBoostPadId), {
+      message: 'player activates a boost pad',
+    })
+    .not.toBeNull();
+  await expect
+    .poll(() => readDebug(page).then((debug) => debug.trackFeatures.boostIntensity), {
+      message: 'boost pad contributes positive boost intensity',
+    })
+    .toBeGreaterThan(0);
+  await expect
+    .poll(() => readDebug(page).then((debug) => debug.audio.boostGain), {
+      message: 'boost pad is treated like boost for audio feedback',
+    })
+    .toBeGreaterThan(0);
+
+  await page.evaluate(() => window.__racingGameTestControls?.placeOnObstacle(0));
+  await expect
+    .poll(() => readDebug(page).then((debug) => debug.trackFeatures.activeObstacleId), {
+      message: 'player activates an obstacle hazard',
+    })
+    .not.toBeNull();
+  await expect
+    .poll(() => readDebug(page).then((debug) => debug.trackFeatures.obstacleSeverity), {
+      message: 'obstacle contributes positive slowdown severity',
+    })
+    .toBeGreaterThan(0);
+  const featureDebug = await readDebug(page);
+  expect(featureDebug.trackFeatures.lastBoostPadId).not.toBeNull();
+  expect(featureDebug.trackFeatures.lastObstacleId).toBe(featureDebug.trackFeatures.activeObstacleId);
+  expect(featureDebug.trackFeatures.lastObstacleSpeedDelta).toBeLessThan(0);
+
+  await page.keyboard.up('ArrowUp');
   expect(consoleErrors).toEqual([]);
 });
 

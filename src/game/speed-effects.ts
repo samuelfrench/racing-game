@@ -16,10 +16,11 @@ export type SpeedEffectState = {
 
 const baseCameraFov = 62;
 const maxCameraFov = 72;
+const speedEffectReferenceSpeed = 76;
 
 export function computeSpeedEffects(input: SpeedEffectInput): SpeedEffectState {
   const deltaSeconds = clamp(input.deltaSeconds, 0, 0.25);
-  const speedT = clamp(Math.abs(input.speed) / 64, 0, 1);
+  const speedT = clamp(Math.abs(input.speed) / speedEffectReferenceSpeed, 0, 1);
   const driftT = clamp(input.drift * 2.2, 0, 0.24);
   const boostT = input.boostActive ? 0.16 : 0;
   const targetIntensity = clamp(speedT * 0.82 + driftT + boostT, 0, 1);
