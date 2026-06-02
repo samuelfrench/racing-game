@@ -201,6 +201,7 @@ type DebugOpponent = {
   readonly targetSpeed: number;
   readonly pressureBonus: number;
   readonly peakPressureBonus: number;
+  readonly racingLineOffset: number;
   readonly finishedAtSeconds: number | null;
 };
 
@@ -981,8 +982,7 @@ function updateOpponentMeshes(): void {
     if (!opponentMesh) {
       return;
     }
-    const laneOffset = getOpponentLaneOffset(index, opponent.heading);
-    opponentMesh.position.set(opponent.position.x + laneOffset.x, 0.1, opponent.position.z + laneOffset.z);
+    opponentMesh.position.set(opponent.position.x, 0.1, opponent.position.z);
     opponentMesh.rotation.set(0, opponent.heading, 0);
   });
 }
@@ -2204,11 +2204,6 @@ function perpendicularOffset(heading: number, distance: number): TrackPoint {
   };
 }
 
-function getOpponentLaneOffset(index: number, heading: number): TrackPoint {
-  const laneOffsets = [-6.2, 6.2, -2.2] as const;
-  return perpendicularOffset(heading, laneOffsets[index % laneOffsets.length]);
-}
-
 function resize(): void {
   const width = window.innerWidth;
   const height = window.innerHeight;
@@ -2292,6 +2287,7 @@ function createDebugState(): DebugState {
       targetSpeed: opponent.targetSpeed,
       pressureBonus: opponent.pressureBonus,
       peakPressureBonus: opponent.peakPressureBonus,
+      racingLineOffset: opponent.racingLineOffset,
       finishedAtSeconds: opponent.finishedAtSeconds,
     })),
     results: session.results.map((result) => ({ ...result })),

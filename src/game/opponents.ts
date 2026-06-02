@@ -14,6 +14,8 @@ export type OpponentState = {
   readonly targetSpeed: number;
   readonly pressureBonus: number;
   readonly peakPressureBonus: number;
+  readonly laneOffset: number;
+  readonly racingLineOffset: number;
   readonly acceleration: number;
   readonly totalLaps: number;
   readonly finishedAtSeconds: number | null;
@@ -30,19 +32,20 @@ type OpponentConfig = {
   readonly targetSpeed: number;
   readonly acceleration: number;
   readonly startDistance: number;
+  readonly laneOffset: number;
 };
 
 const opponentConfigs: readonly OpponentConfig[] = [
-  { id: 'opponent-1', name: 'Mara Voss', color: '#ff4d6d', targetSpeed: 56, acceleration: 18, startDistance: 0 },
-  { id: 'opponent-2', name: 'Timo Reyes', color: '#49c6ff', targetSpeed: 54, acceleration: 17, startDistance: -8 },
-  { id: 'opponent-3', name: 'Juno Park', color: '#f5d547', targetSpeed: 52, acceleration: 16, startDistance: -16 },
+  { id: 'opponent-1', name: 'Mara Voss', color: '#ff4d6d', targetSpeed: 56, acceleration: 18, startDistance: 0, laneOffset: -6.2 },
+  { id: 'opponent-2', name: 'Timo Reyes', color: '#49c6ff', targetSpeed: 54, acceleration: 17, startDistance: -8, laneOffset: 6.2 },
+  { id: 'opponent-3', name: 'Juno Park', color: '#f5d547', targetSpeed: 52, acceleration: 16, startDistance: -16, laneOffset: -2.2 },
 ];
 
 export function createOpponentGrid(track: TrackDefinition, totalLaps: number): readonly OpponentState[] {
   const laps = Math.max(1, Math.trunc(totalLaps));
 
   return opponentConfigs.map((config) => {
-    const sample = sampleTrackCenterlineAtDistance(track, config.startDistance);
+    const sample = sampleOpponentLineAtDistance(track, config.startDistance, config.laneOffset);
 
     return {
       id: config.id,
@@ -56,6 +59,8 @@ export function createOpponentGrid(track: TrackDefinition, totalLaps: number): r
       targetSpeed: config.targetSpeed,
       pressureBonus: 0,
       peakPressureBonus: 0,
+      laneOffset: config.laneOffset,
+      racingLineOffset: sample.racingLineOffset,
       acceleration: config.acceleration,
       totalLaps: laps,
       finishedAtSeconds: null,
@@ -87,7 +92,7 @@ export function stepOpponents(
     const nextDistance = opponent.distanceTraveled + nextSpeed * delta;
 
     if (nextDistance >= finishDistance) {
-      const sample = sampleTrackCenterlineAtDistance(track, finishDistance);
+      const sample = sampleOpponentLineAtDistance(track, finishDistance, opponent.laneOffset);
       const overshoot = nextDistance - finishDistance;
       const finishedAtSeconds = nextSpeed <= 0 ? elapsedSeconds : elapsedSeconds - overshoot / nextSpeed;
 
@@ -100,11 +105,12 @@ export function stepOpponents(
         speed: nextSpeed,
         pressureBonus,
         peakPressureBonus,
+        racingLineOffset: sample.racingLineOffset,
         finishedAtSeconds,
       };
     }
 
-    const sample = sampleTrackCenterlineAtDistance(track, nextDistance);
+    const sample = sampleOpponentLineAtDistance(track, nextDistance, opponent.laneOffset);
 
     return {
       ...opponent,
@@ -115,6 +121,7 @@ export function stepOpponents(
       speed: nextSpeed,
       pressureBonus,
       peakPressureBonus,
+      racingLineOffset: sample.racingLineOffset,
     };
   });
 }
@@ -149,6 +156,36 @@ function getLapForDistance(distance: number, lapLength: number, totalLaps: numbe
   return Math.min(totalLaps, lap);
 }
 
+function sampleOpponentLineAtDistance(
+  track: TrackDefinition,
+  distance: number,
+  laneOffset: number,
+): { readonly position: TrackPoint; readonly heading: number; readonly racingLineOffset: number } {
+  const centerline = sampleTrackCenterlineAtDistance(track, distance);
+  const racingLineOffset = computeRacingLineOffset(track, distance, laneOffset);
+  const lateralOffset = perpendicularOffset(centerline.heading, racingLineOffset);
+
+  return {
+    position: {
+      x: centerline.position.x + lateralOffset.x,
+      z: centerline.position.z + lateralOffset.z,
+    },
+    heading: centerline.heading,
+    racingLineOffset,
+  };
+}
+
+function computeRacingLineOffset(track: TrackDefinition, distance: number, laneOffset: number): number {
+  const current = sampleTrackCenterlineAtDistance(track, distance);
+  const lookahead = sampleTrackCenterlineAtDistance(track, distance + 36);
+  const turnDelta = shortestAngleDeltaRadians(current.heading, lookahead.heading);
+  const cornerT = clamp(Math.abs(turnDelta) / 0.6, 0, 1);
+  const insideCornerOffset = Math.sign(turnDelta) * cornerT * 3.1;
+  const maxOffset = Math.max(0, track.roadWidth * 0.5 - 2.4);
+
+  return Math.round(clamp(laneOffset + insideCornerOffset, -maxOffset, maxOffset) * 100) / 100;
+}
+
 function computePressureBonus(opponent: OpponentState, playerDistance: number | undefined): number {
   if (!Number.isFinite(playerDistance)) {
     return 0;
@@ -176,4 +213,15 @@ function approach(current: number, target: number, maximumStep: number): number 
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function perpendicularOffset(heading: number, distance: number): TrackPoint {
+  return {
+    x: Math.cos(heading) * distance,
+    z: -Math.sin(heading) * distance,
+  };
+}
+
+function shortestAngleDeltaRadians(from: number, to: number): number {
+  return Math.atan2(Math.sin(to - from), Math.cos(to - from));
 }

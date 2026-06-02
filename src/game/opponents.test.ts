@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultTrack } from './track';
 import { createOpponentGrid, getOpponentResults, stepOpponents } from './opponents';
+import { sampleTrackCenterlineAtDistance } from './track-progress';
 
 describe('opponents', () => {
   it('creates a stable three-car opponent grid', () => {
@@ -17,6 +18,7 @@ describe('opponents', () => {
       expect(Number.isFinite(opponent.position.x)).toBe(true);
       expect(Number.isFinite(opponent.position.z)).toBe(true);
       expect(Number.isFinite(opponent.heading)).toBe(true);
+      expect(Number.isFinite(opponent.racingLineOffset)).toBe(true);
       expect(opponent.lap).toBe(1);
       expect(opponent.finishedAtSeconds).toBeNull();
     }
@@ -68,6 +70,33 @@ describe('opponents', () => {
 
     expect(opponents[0].speed).toBeGreaterThan(50);
     expect(opponents[0].speed).toBeLessThanOrEqual(opponents[0].targetSpeed);
+  });
+
+  it('moves opponents onto dynamic racing lines through upcoming corners', () => {
+    const track = createDefaultTrack();
+    const [, challenger] = createOpponentGrid(track, 1);
+    const straightState = {
+      ...challenger,
+      speed: challenger.targetSpeed,
+      distanceTraveled: 20,
+    };
+    const cornerEntryState = {
+      ...challenger,
+      speed: challenger.targetSpeed,
+      distanceTraveled: 92,
+    };
+
+    const [straight] = stepOpponents([straightState], track, 1 / 60, true, 1);
+    const [cornerEntry] = stepOpponents([cornerEntryState], track, 1 / 60, true, 1);
+    const cornerCenterline = sampleTrackCenterlineAtDistance(track, cornerEntry.distanceTraveled);
+    const cornerDistanceFromCenterline = Math.hypot(
+      cornerEntry.position.x - cornerCenterline.position.x,
+      cornerEntry.position.z - cornerCenterline.position.z,
+    );
+
+    expect(cornerEntry.racingLineOffset).toBeGreaterThan(straight.racingLineOffset + 1);
+    expect(cornerDistanceFromCenterline).toBeCloseTo(Math.abs(cornerEntry.racingLineOffset), 1);
+    expect(Math.abs(cornerEntry.racingLineOffset)).toBeLessThan(track.roadWidth * 0.5);
   });
 
   it('adds passing pressure when the player opens a gap without changing base target speed', () => {

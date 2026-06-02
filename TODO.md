@@ -6,10 +6,11 @@
 
 ## Next Improvements
 
-- [ ] Tune opponent cornering lines after live-device feedback.
+- [ ] Tune opponent spacing and passing behavior after live-device feedback.
 
 ## Completed
 
+- [x] Move opponents onto dynamic racing lines through corners.
 - [x] Add opponent passing pressure when the player opens a gap.
 - [x] Improve low-speed steering response under throttle and braking.
 - [x] Add drift smoke visual feedback for handbrake slides.
