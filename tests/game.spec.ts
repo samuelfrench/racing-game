@@ -47,6 +47,7 @@ type DebugState = {
     crowdPanels: number;
     lightMasts: number;
     speedStreaks: number;
+    finishMarkers: number;
   };
   settings: {
     graphicsQuality: 'high' | 'balanced' | 'low';
@@ -280,6 +281,7 @@ for (const viewport of viewports) {
     expect(initialDebug.trackArt.crowdPanels).toBeGreaterThanOrEqual(6);
     expect(initialDebug.trackArt.lightMasts).toBeGreaterThanOrEqual(10);
     expect(initialDebug.trackArt.speedStreaks).toBeGreaterThanOrEqual(12);
+    expect(initialDebug.trackArt.finishMarkers).toBeGreaterThanOrEqual(16);
     expect(initialDebug.racePosition.participants).toHaveLength(4);
     expect(initialDebug.opponents.every((opponent) => opponent.pressureBonus === 0)).toBe(true);
     expect(initialDebug.opponents.every((opponent) => opponent.peakPressureBonus === 0)).toBe(true);

@@ -240,6 +240,7 @@ type TrackArtDebug = {
   readonly crowdPanels: number;
   readonly lightMasts: number;
   readonly speedStreaks: number;
+  readonly finishMarkers: number;
 };
 
 type TrackArtMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
@@ -652,6 +653,9 @@ function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinitio
   ];
   const mastMaterial = new THREE.MeshBasicMaterial({ color: 0xb9f7ff });
   const lightMaterial = new THREE.MeshBasicMaterial({ color: 0xfff3ac });
+  const finishWhiteMaterial = new THREE.MeshBasicMaterial({ color: 0xf8fbff });
+  const finishBlackMaterial = new THREE.MeshBasicMaterial({ color: 0x050607 });
+  const finishAccentMaterial = new THREE.MeshBasicMaterial({ color: 0xffe66b });
   const streakMaterial = new THREE.MeshBasicMaterial({
     color: 0x9af7ff,
     opacity: 0,
@@ -663,6 +667,11 @@ function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinitio
   const crowdPanels: TrackArtMesh[] = [];
   const lightMasts: TrackArtMesh[] = [];
   const speedStreaks: TrackArtMesh[] = [];
+  const finishMarkers = addFinishLineMarkers(group, trackDefinition, {
+    accent: finishAccentMaterial,
+    black: finishBlackMaterial,
+    white: finishWhiteMaterial,
+  });
 
   forEachSegment(trackDefinition.centerline, (start, end, index) => {
     const midpoint = midpointOf(start, end);
@@ -796,8 +805,94 @@ function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinitio
       crowdPanels: crowdPanels.length,
       lightMasts: lightMasts.length,
       speedStreaks: speedStreaks.length,
+      finishMarkers,
     },
   };
+}
+
+function addFinishLineMarkers(
+  group: THREE.Group,
+  trackDefinition: TrackDefinition,
+  materials: {
+    readonly accent: THREE.MeshBasicMaterial;
+    readonly black: THREE.MeshBasicMaterial;
+    readonly white: THREE.MeshBasicMaterial;
+  },
+): number {
+  const start = trackDefinition.checkpoints[0];
+  const next = trackDefinition.centerline[1] ?? trackDefinition.checkpoints[1];
+  if (!start || !next) {
+    return 0;
+  }
+
+  const heading = Math.atan2(next.x - start.x, next.z - start.z);
+  const forward = { x: Math.sin(heading), z: Math.cos(heading) };
+  const tileColumns = 8;
+  const tileRows = 2;
+  const tileWidth = trackDefinition.roadWidth / tileColumns;
+  const tileLength = 3.4;
+  let markerCount = 0;
+
+  for (let row = 0; row < tileRows; row += 1) {
+    for (let column = 0; column < tileColumns; column += 1) {
+      const sideOffset = (column - (tileColumns - 1) * 0.5) * tileWidth;
+      const forwardOffset = (row - (tileRows - 1) * 0.5) * tileLength;
+      const side = perpendicularOffset(heading, sideOffset);
+      const marker = new THREE.Mesh(
+        new THREE.BoxGeometry(tileWidth * 0.92, 0.1, tileLength * 0.92),
+        (row + column) % 2 === 0 ? materials.white : materials.black,
+      );
+      marker.position.set(
+        start.x + side.x + forward.x * forwardOffset,
+        0.26,
+        start.z + side.z + forward.z * forwardOffset,
+      );
+      marker.rotation.y = heading;
+      marker.receiveShadow = true;
+      group.add(marker);
+      markerCount += 1;
+    }
+  }
+
+  const gantryGroup = new THREE.Group();
+  gantryGroup.position.set(start.x, 0, start.z);
+  gantryGroup.rotation.y = heading;
+
+  const postGeometry = new THREE.BoxGeometry(1.7, 17, 1.7);
+  const leftPost = new THREE.Mesh(postGeometry, materials.accent);
+  const rightPost = new THREE.Mesh(postGeometry, materials.accent);
+  leftPost.position.set(-trackDefinition.roadWidth * 0.62, 8.5, 0);
+  rightPost.position.set(trackDefinition.roadWidth * 0.62, 8.5, 0);
+  gantryGroup.add(leftPost, rightPost);
+  markerCount += 2;
+
+  const capGeometry = new THREE.BoxGeometry(trackDefinition.roadWidth * 1.34, 1.35, 1.4);
+  const cap = new THREE.Mesh(capGeometry, materials.black);
+  cap.position.set(0, 16.2, 0);
+  gantryGroup.add(cap);
+  markerCount += 1;
+
+  for (let column = 0; column < tileColumns; column += 1) {
+    const block = new THREE.Mesh(
+      new THREE.BoxGeometry((trackDefinition.roadWidth * 1.22) / tileColumns, 1.5, 1.55),
+      column % 2 === 0 ? materials.white : materials.black,
+    );
+    block.position.set(
+      (column - (tileColumns - 1) * 0.5) * ((trackDefinition.roadWidth * 1.22) / tileColumns),
+      17.75,
+      0,
+    );
+    gantryGroup.add(block);
+    markerCount += 1;
+  }
+
+  const glow = new THREE.Mesh(new THREE.BoxGeometry(trackDefinition.roadWidth * 1.1, 0.45, 1.8), materials.accent);
+  glow.position.set(0, 14.8, 0);
+  gantryGroup.add(glow);
+  markerCount += 1;
+
+  group.add(gantryGroup);
+  return markerCount;
 }
 
 function buildCar(bodyColor: THREE.ColorRepresentation = 0xff335f): THREE.Group {
