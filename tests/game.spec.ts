@@ -181,6 +181,7 @@ type DebugState = {
     pressureBonus: number;
     peakPressureBonus: number;
     racingLineOffset: number;
+    passingLineOffset: number;
     finishedAtSeconds: number | null;
   }[];
   results: readonly {
@@ -281,6 +282,7 @@ for (const viewport of viewports) {
     expect(initialDebug.opponents.every((opponent) => opponent.peakPressureBonus === 0)).toBe(true);
     expect(initialDebug.opponents.every((opponent) => Number.isFinite(opponent.racingLineOffset))).toBe(true);
     expect(initialDebug.opponents.some((opponent) => Math.abs(opponent.racingLineOffset) > 1)).toBe(true);
+    expect(initialDebug.opponents.every((opponent) => opponent.passingLineOffset === 0)).toBe(true);
     expect(initialDebug.minimap).toMatchObject({
       canvasWidth: 168,
       canvasHeight: 104,

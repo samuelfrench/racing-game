@@ -16,6 +16,7 @@ export type OpponentState = {
   readonly peakPressureBonus: number;
   readonly laneOffset: number;
   readonly racingLineOffset: number;
+  readonly passingLineOffset: number;
   readonly acceleration: number;
   readonly totalLaps: number;
   readonly finishedAtSeconds: number | null;
@@ -61,6 +62,7 @@ export function createOpponentGrid(track: TrackDefinition, totalLaps: number): r
       peakPressureBonus: 0,
       laneOffset: config.laneOffset,
       racingLineOffset: sample.racingLineOffset,
+      passingLineOffset: sample.passingLineOffset,
       acceleration: config.acceleration,
       totalLaps: laps,
       finishedAtSeconds: null,
@@ -92,7 +94,8 @@ export function stepOpponents(
     const nextDistance = opponent.distanceTraveled + nextSpeed * delta;
 
     if (nextDistance >= finishDistance) {
-      const sample = sampleOpponentLineAtDistance(track, finishDistance, opponent.laneOffset);
+      const passingLineOffset = computePassingLineOffset(opponent, finishDistance, context.playerDistance);
+      const sample = sampleOpponentLineAtDistance(track, finishDistance, opponent.laneOffset, passingLineOffset);
       const overshoot = nextDistance - finishDistance;
       const finishedAtSeconds = nextSpeed <= 0 ? elapsedSeconds : elapsedSeconds - overshoot / nextSpeed;
 
@@ -106,11 +109,13 @@ export function stepOpponents(
         pressureBonus,
         peakPressureBonus,
         racingLineOffset: sample.racingLineOffset,
+        passingLineOffset: sample.passingLineOffset,
         finishedAtSeconds,
       };
     }
 
-    const sample = sampleOpponentLineAtDistance(track, nextDistance, opponent.laneOffset);
+    const passingLineOffset = computePassingLineOffset(opponent, nextDistance, context.playerDistance);
+    const sample = sampleOpponentLineAtDistance(track, nextDistance, opponent.laneOffset, passingLineOffset);
 
     return {
       ...opponent,
@@ -122,6 +127,7 @@ export function stepOpponents(
       pressureBonus,
       peakPressureBonus,
       racingLineOffset: sample.racingLineOffset,
+      passingLineOffset: sample.passingLineOffset,
     };
   });
 }
@@ -160,9 +166,18 @@ function sampleOpponentLineAtDistance(
   track: TrackDefinition,
   distance: number,
   laneOffset: number,
-): { readonly position: TrackPoint; readonly heading: number; readonly racingLineOffset: number } {
+  requestedPassingLineOffset = 0,
+): {
+  readonly position: TrackPoint;
+  readonly heading: number;
+  readonly racingLineOffset: number;
+  readonly passingLineOffset: number;
+} {
   const centerline = sampleTrackCenterlineAtDistance(track, distance);
-  const racingLineOffset = computeRacingLineOffset(track, distance, laneOffset);
+  const baseRacingLineOffset = computeBaseRacingLineOffset(track, distance, laneOffset);
+  const maxOffset = getMaxRacingLineOffset(track);
+  const racingLineOffset = round2(clamp(baseRacingLineOffset + requestedPassingLineOffset, -maxOffset, maxOffset));
+  const passingLineOffset = round2(racingLineOffset - baseRacingLineOffset);
   const lateralOffset = perpendicularOffset(centerline.heading, racingLineOffset);
 
   return {
@@ -172,18 +187,41 @@ function sampleOpponentLineAtDistance(
     },
     heading: centerline.heading,
     racingLineOffset,
+    passingLineOffset,
   };
 }
 
-function computeRacingLineOffset(track: TrackDefinition, distance: number, laneOffset: number): number {
+function computeBaseRacingLineOffset(track: TrackDefinition, distance: number, laneOffset: number): number {
   const current = sampleTrackCenterlineAtDistance(track, distance);
   const lookahead = sampleTrackCenterlineAtDistance(track, distance + 36);
   const turnDelta = shortestAngleDeltaRadians(current.heading, lookahead.heading);
   const cornerT = clamp(Math.abs(turnDelta) / 0.6, 0, 1);
   const insideCornerOffset = Math.sign(turnDelta) * cornerT * 3.1;
-  const maxOffset = Math.max(0, track.roadWidth * 0.5 - 2.4);
+  const maxOffset = getMaxRacingLineOffset(track);
 
-  return Math.round(clamp(laneOffset + insideCornerOffset, -maxOffset, maxOffset) * 100) / 100;
+  return round2(clamp(laneOffset + insideCornerOffset, -maxOffset, maxOffset));
+}
+
+function computePassingLineOffset(
+  opponent: OpponentState,
+  nextDistance: number,
+  playerDistance: number | undefined,
+): number {
+  if (!Number.isFinite(playerDistance)) {
+    return 0;
+  }
+
+  const proximityMeters = Math.abs((playerDistance ?? 0) - nextDistance);
+  const passStartGap = 24;
+  const passFullGap = 6;
+
+  if (proximityMeters >= passStartGap) {
+    return 0;
+  }
+
+  const passingT = 1 - clamp((proximityMeters - passFullGap) / (passStartGap - passFullGap), 0, 1);
+  const side = opponent.laneOffset >= 0 ? 1 : -1;
+  return round2(side * passingT * 2.8);
 }
 
 function computePressureBonus(opponent: OpponentState, playerDistance: number | undefined): number {
@@ -213,6 +251,14 @@ function approach(current: number, target: number, maximumStep: number): number 
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function getMaxRacingLineOffset(track: TrackDefinition): number {
+  return Math.max(0, track.roadWidth * 0.5 - 2.4);
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 function perpendicularOffset(heading: number, distance: number): TrackPoint {

@@ -19,6 +19,7 @@ describe('opponents', () => {
       expect(Number.isFinite(opponent.position.z)).toBe(true);
       expect(Number.isFinite(opponent.heading)).toBe(true);
       expect(Number.isFinite(opponent.racingLineOffset)).toBe(true);
+      expect(opponent.passingLineOffset).toBe(0);
       expect(opponent.lap).toBe(1);
       expect(opponent.finishedAtSeconds).toBeNull();
     }
@@ -97,6 +98,31 @@ describe('opponents', () => {
     expect(cornerEntry.racingLineOffset).toBeGreaterThan(straight.racingLineOffset + 1);
     expect(cornerDistanceFromCenterline).toBeCloseTo(Math.abs(cornerEntry.racingLineOffset), 1);
     expect(Math.abs(cornerEntry.racingLineOffset)).toBeLessThan(track.roadWidth * 0.5);
+  });
+
+  it('opens a passing line near the player without changing pace or pressure', () => {
+    const track = createDefaultTrack();
+    const [leader] = createOpponentGrid(track, 1);
+    const nearPlayerState = {
+      ...leader,
+      speed: leader.targetSpeed - 1,
+      distanceTraveled: 20,
+    };
+
+    const nearPlayer = stepOpponents([nearPlayerState], track, 1 / 60, true, 1, {
+      playerDistance: 24,
+    });
+    const playerFarBehind = stepOpponents([nearPlayerState], track, 1 / 60, true, 1, {
+      playerDistance: -40,
+    });
+
+    expect(nearPlayer[0].passingLineOffset).toBeLessThan(0);
+    expect(Math.abs(nearPlayer[0].passingLineOffset)).toBeGreaterThan(1);
+    expect(playerFarBehind[0].passingLineOffset).toBe(0);
+    expect(Math.abs(nearPlayer[0].racingLineOffset)).toBeGreaterThan(Math.abs(playerFarBehind[0].racingLineOffset));
+    expect(nearPlayer[0].speed).toBe(playerFarBehind[0].speed);
+    expect(nearPlayer[0].pressureBonus).toBe(0);
+    expect(playerFarBehind[0].pressureBonus).toBe(0);
   });
 
   it('adds passing pressure when the player opens a gap without changing base target speed', () => {

@@ -202,6 +202,7 @@ type DebugOpponent = {
   readonly pressureBonus: number;
   readonly peakPressureBonus: number;
   readonly racingLineOffset: number;
+  readonly passingLineOffset: number;
   readonly finishedAtSeconds: number | null;
 };
 
@@ -2288,6 +2289,7 @@ function createDebugState(): DebugState {
       pressureBonus: opponent.pressureBonus,
       peakPressureBonus: opponent.peakPressureBonus,
       racingLineOffset: opponent.racingLineOffset,
+      passingLineOffset: opponent.passingLineOffset,
       finishedAtSeconds: opponent.finishedAtSeconds,
     })),
     results: session.results.map((result) => ({ ...result })),

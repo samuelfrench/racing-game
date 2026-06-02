@@ -6,10 +6,11 @@
 
 ## Next Improvements
 
-- [ ] Tune opponent spacing and passing behavior after live-device feedback.
+- [ ] Add opponent proximity cues after live-device feedback.
 
 ## Completed
 
+- [x] Add opponent proximity passing lines.
 - [x] Move opponents onto dynamic racing lines through corners.
 - [x] Add opponent passing pressure when the player opens a gap.
 - [x] Improve low-speed steering response under throttle and braking.
