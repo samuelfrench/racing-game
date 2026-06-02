@@ -1,11 +1,14 @@
 import type { RacePositionState } from './race-position';
 
 export type RaceAwarenessTone = 'leader' | 'chasing' | 'midfield' | 'last';
+export type RaceProximityState = 'clear' | 'alongside';
 
 export type RaceAwarenessState = {
   readonly positionLabel: string;
   readonly gapLabel: string;
   readonly gapMeters: number | null;
+  readonly nearestOpponentMeters: number | null;
+  readonly proximity: RaceProximityState;
   readonly tone: RaceAwarenessTone;
 };
 
@@ -24,16 +27,21 @@ export function createRaceAwareness(
       positionLabel,
       gapLabel: '--',
       gapMeters: null,
+      nearestOpponentMeters: null,
+      proximity: 'clear',
       tone,
     };
   }
 
   const player = racePosition.participants[playerIndex];
+  const nearestOpponentMeters = getNearestOpponentMeters(racePosition, playerIndex);
   if (player.finishedAtSeconds !== null) {
     return {
       positionLabel,
       gapLabel: 'FINISH',
       gapMeters: null,
+      nearestOpponentMeters: null,
+      proximity: 'clear',
       tone,
     };
   }
@@ -44,6 +52,8 @@ export function createRaceAwareness(
       positionLabel,
       gapLabel: position === 1 ? 'LEAD' : '--',
       gapMeters: null,
+      nearestOpponentMeters,
+      proximity: 'clear',
       tone,
     };
   }
@@ -53,15 +63,47 @@ export function createRaceAwareness(
       ? sanitizeDistance(player.distance) - sanitizeDistance(comparison.distance)
       : sanitizeDistance(comparison.distance) - sanitizeDistance(player.distance);
   const gapMeters = Math.max(0, rawGap);
+  const proximity = getProximity(nearestOpponentMeters);
   const roundedGap = Math.max(0, Math.round(gapMeters));
   const gapPrefix = playerIndex === 0 ? 'LEAD' : 'GAP';
 
   return {
     positionLabel,
-    gapLabel: `${gapPrefix} ${roundedGap}m`,
+    gapLabel: proximity === 'alongside' ? 'ALONGSIDE' : `${gapPrefix} ${roundedGap}m`,
     gapMeters,
+    nearestOpponentMeters,
+    proximity,
     tone,
   };
+}
+
+function getNearestOpponentMeters(racePosition: RacePositionState, playerIndex: number): number | null {
+  const player = racePosition.participants[playerIndex];
+  if (!player) {
+    return null;
+  }
+
+  const playerDistance = sanitizeDistance(player.distance);
+  let nearest = Number.POSITIVE_INFINITY;
+
+  for (let i = 0; i < racePosition.participants.length; i += 1) {
+    if (i === playerIndex) {
+      continue;
+    }
+
+    const participant = racePosition.participants[i];
+    if (participant.finishedAtSeconds !== null) {
+      continue;
+    }
+
+    nearest = Math.min(nearest, Math.abs(sanitizeDistance(participant.distance) - playerDistance));
+  }
+
+  return Number.isFinite(nearest) ? nearest : null;
+}
+
+function getProximity(nearestOpponentMeters: number | null): RaceProximityState {
+  return nearestOpponentMeters !== null && nearestOpponentMeters <= 8 ? 'alongside' : 'clear';
 }
 
 function getPositionTone(position: number, total: number): RaceAwarenessTone {

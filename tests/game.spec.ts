@@ -99,6 +99,8 @@ type DebugState = {
     positionLabel: string;
     gapLabel: string;
     gapMeters: number | null;
+    nearestOpponentMeters: number | null;
+    proximity: 'clear' | 'alongside';
     tone: 'leader' | 'chasing' | 'midfield' | 'last';
   };
   timing: {
@@ -222,7 +224,7 @@ for (const viewport of viewports) {
     await expect(page.locator('#game-canvas')).toBeVisible();
     await expect(page.locator('#race-status')).toBeVisible();
     await expect(page.locator('#race-position')).toHaveText(/^P[1-4]\/4$/);
-    await expect(page.locator('#race-gap')).toHaveText(/^(?:LEAD|GAP) \d+m$|^FINISH$/);
+    await expect(page.locator('#race-gap')).toHaveText(/^(?:LEAD|GAP) \d+m$|^ALONGSIDE$|^FINISH$/);
     await expect(page.locator('#lap-time')).toBeVisible();
     await expect(page.locator('#sector-label')).toHaveText(/^S[1-5]$/);
     await expect(page.locator('#sector-time')).toBeVisible();
@@ -242,7 +244,8 @@ for (const viewport of viewports) {
     await expect.poll(() => readDebug(page).then((debug) => debug.raceAwareness.positionLabel)).toMatch(/^P[1-4]\/4$/);
     await expect
       .poll(() => readDebug(page).then((debug) => debug.raceAwareness.gapLabel))
-      .toMatch(/^(?:LEAD|GAP) \d+m$|^FINISH$/);
+      .toMatch(/^(?:LEAD|GAP) \d+m$|^ALONGSIDE$|^FINISH$/);
+    await expect.poll(() => readDebug(page).then((debug) => debug.raceAwareness.proximity)).toMatch(/^(?:clear|alongside)$/);
     await expect
       .poll(async () => {
         const debug = await readDebug(page);

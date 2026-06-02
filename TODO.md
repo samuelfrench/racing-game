@@ -6,10 +6,11 @@
 
 ## Next Improvements
 
-- [ ] Add opponent proximity cues after live-device feedback.
+- [ ] Tune chase camera look-ahead and framing after live-device feedback.
 
 ## Completed
 
+- [x] Add opponent proximity cues after live-device feedback.
 - [x] Add opponent proximity passing lines.
 - [x] Move opponents onto dynamic racing lines through corners.
 - [x] Add opponent passing pressure when the player opens a gap.

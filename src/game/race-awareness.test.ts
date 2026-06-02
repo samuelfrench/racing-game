@@ -24,6 +24,8 @@ describe('race awareness display state', () => {
       positionLabel: 'P1/4',
       gapLabel: 'LEAD 30m',
       gapMeters: 30,
+      nearestOpponentMeters: 30,
+      proximity: 'clear',
       tone: 'leader',
     });
   });
@@ -44,7 +46,29 @@ describe('race awareness display state', () => {
     expect(awareness.positionLabel).toBe('P2/4');
     expect(awareness.gapLabel).toBe('GAP 18m');
     expect(awareness.gapMeters).toBeCloseTo(17.6);
+    expect(awareness.nearestOpponentMeters).toBeCloseTo(17.6);
+    expect(awareness.proximity).toBe('clear');
     expect(awareness.tone).toBe('chasing');
+  });
+
+  it('warns when an active opponent is alongside the player', () => {
+    const awareness = createRaceAwareness(
+      state({
+        position: 1,
+        participants: [
+          { id: 'player', name: 'You', distance: 620, finishedAtSeconds: null },
+          { id: 'opponent-a', name: 'Nova', distance: 615.4, finishedAtSeconds: null },
+          { id: 'opponent-b', name: 'Vega', distance: 540, finishedAtSeconds: null },
+          { id: 'opponent-c', name: 'Orion', distance: 410, finishedAtSeconds: null },
+        ],
+      }),
+    );
+
+    expect(awareness.gapLabel).toBe('ALONGSIDE');
+    expect(awareness.gapMeters).toBeCloseTo(4.6);
+    expect(awareness.nearestOpponentMeters).toBeCloseTo(4.6);
+    expect(awareness.proximity).toBe('alongside');
+    expect(awareness.tone).toBe('leader');
   });
 
   it('shows finish state for a classified player', () => {
@@ -59,6 +83,8 @@ describe('race awareness display state', () => {
     );
 
     expect(awareness.gapLabel).toBe('FINISH');
+    expect(awareness.proximity).toBe('clear');
+    expect(awareness.nearestOpponentMeters).toBeNull();
     expect(awareness.tone).toBe('leader');
   });
 
@@ -76,6 +102,8 @@ describe('race awareness display state', () => {
       positionLabel: 'P2/2',
       gapLabel: '--',
       gapMeters: null,
+      nearestOpponentMeters: null,
+      proximity: 'clear',
       tone: 'last',
     });
   });
@@ -91,6 +119,8 @@ describe('race awareness display state', () => {
       positionLabel: 'P0/0',
       gapLabel: '--',
       gapMeters: null,
+      nearestOpponentMeters: null,
+      proximity: 'clear',
       tone: 'midfield',
     });
   });

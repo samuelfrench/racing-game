@@ -299,6 +299,11 @@ input {
   white-space: nowrap;
 }
 
+#race-gap[data-proximity="alongside"] {
+  color: #ffe66b;
+  text-shadow: 0 0 10px rgb(255 230 107 / 36%);
+}
+
 #minimap-canvas {
   display: block;
   width: 126px;

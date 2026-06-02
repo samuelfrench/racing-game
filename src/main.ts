@@ -1163,6 +1163,7 @@ function updateRaceAwareness(): void {
   hud.racePosition.textContent = raceAwareness.positionLabel;
   hud.racePosition.dataset.tone = raceAwareness.tone;
   hud.raceGap.textContent = raceAwareness.gapLabel;
+  hud.raceGap.dataset.proximity = raceAwareness.proximity;
   minimapDebug = drawMinimap();
 }
 
