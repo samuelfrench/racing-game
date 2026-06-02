@@ -141,8 +141,18 @@
       </section>
       <section id="start-panel" aria-label="Game start">
         <div>
-          <p class="eyebrow">Arcade prototype</p>
-          <h2>Hit the checkpoints. Keep it clean. Use boost out of corners.</h2>
+          <p class="eyebrow">Choose your racer</p>
+          <h2>Pick a monster. Hit the checkpoints. Use the stats.</h2>
+          <div id="character-grid" class="character-grid" role="listbox" aria-label="Racer roster"></div>
+          <section id="selected-character-panel" class="selected-character-panel" aria-live="polite">
+            <img id="selected-character-portrait" src="/favicon.svg" alt="" />
+            <div class="selected-character-copy">
+              <p id="selected-character-title" class="eyebrow"></p>
+              <h3 id="selected-character-name"></h3>
+              <p id="selected-character-description"></p>
+              <div id="selected-character-stats" class="character-stats"></div>
+            </div>
+          </section>
           <button id="start-button" type="button">Start race</button>
         </div>
       </section>

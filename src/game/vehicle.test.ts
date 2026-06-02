@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getCharacterById, getCharacterPerformance } from './characters';
 import { createInitialVehicleState, stepVehicle } from './vehicle';
 
 describe('vehicle physics', () => {
@@ -280,5 +281,134 @@ describe('vehicle physics', () => {
 
     expect(forward.heading).toBeGreaterThan(0);
     expect(reverse.heading).toBeLessThan(0);
+  });
+
+  it('lets character launch stats change acceleration under identical throttle', () => {
+    let dragon = createInitialVehicleState();
+    let ninja = createInitialVehicleState();
+    const dragonPerformance = getCharacterPerformance(getCharacterById('emberclaw-drake'));
+    const ninjaPerformance = getCharacterPerformance(getCharacterById('kage-viper'));
+
+    for (let i = 0; i < 75; i += 1) {
+      dragon = stepVehicle(dragon, {
+        deltaSeconds: 1 / 60,
+        throttle: 1,
+        brake: 0,
+        steer: 0,
+        handbrake: false,
+        boost: false,
+        trackGrip: 1,
+        performance: dragonPerformance,
+      });
+      ninja = stepVehicle(ninja, {
+        deltaSeconds: 1 / 60,
+        throttle: 1,
+        brake: 0,
+        steer: 0,
+        handbrake: false,
+        boost: false,
+        trackGrip: 1,
+        performance: ninjaPerformance,
+      });
+    }
+
+    expect(ninja.speed).toBeGreaterThan(dragon.speed + 2.5);
+  });
+
+  it('lets character speed stats change the effective forward speed cap', () => {
+    const dragonPerformance = getCharacterPerformance(getCharacterById('emberclaw-drake'));
+    const ninjaPerformance = getCharacterPerformance(getCharacterById('kage-viper'));
+    const overLimit = {
+      ...createInitialVehicleState(),
+      speed: 120,
+    };
+
+    const dragon = stepVehicle(overLimit, {
+      deltaSeconds: 1 / 60,
+      throttle: 0,
+      brake: 0,
+      steer: 0,
+      handbrake: false,
+      boost: false,
+      trackGrip: 1,
+      performance: dragonPerformance,
+    });
+    const ninja = stepVehicle(overLimit, {
+      deltaSeconds: 1 / 60,
+      throttle: 0,
+      brake: 0,
+      steer: 0,
+      handbrake: false,
+      boost: false,
+      trackGrip: 1,
+      performance: ninjaPerformance,
+    });
+
+    expect(dragon.speed).toBeGreaterThan(ninja.speed + 8);
+  });
+
+  it('lets character grip and handling stats change cornering authority', () => {
+    const dragonPerformance = getCharacterPerformance(getCharacterById('emberclaw-drake'));
+    const ninjaPerformance = getCharacterPerformance(getCharacterById('kage-viper'));
+    const moving = {
+      ...createInitialVehicleState(),
+      speed: 34,
+    };
+
+    const dragon = stepVehicle(moving, {
+      deltaSeconds: 0.1,
+      throttle: 0,
+      brake: 0,
+      steer: -1,
+      handbrake: false,
+      boost: false,
+      trackGrip: 0.74,
+      performance: dragonPerformance,
+    });
+    const ninja = stepVehicle(moving, {
+      deltaSeconds: 0.1,
+      throttle: 0,
+      brake: 0,
+      steer: -1,
+      handbrake: false,
+      boost: false,
+      trackGrip: 0.74,
+      performance: ninjaPerformance,
+    });
+
+    expect(Math.abs(ninja.heading)).toBeGreaterThan(Math.abs(dragon.heading) + 0.02);
+  });
+
+  it('lets boost specialists hit harder while spending less boost fuel', () => {
+    let dragon = createInitialVehicleState();
+    let revenant = createInitialVehicleState();
+    const dragonPerformance = getCharacterPerformance(getCharacterById('emberclaw-drake'));
+    const revenantPerformance = getCharacterPerformance(getCharacterById('void-revenant'));
+
+    for (let i = 0; i < 90; i += 1) {
+      dragon = stepVehicle(dragon, {
+        deltaSeconds: 1 / 60,
+        throttle: 1,
+        brake: 0,
+        steer: 0,
+        handbrake: false,
+        boost: true,
+        trackGrip: 1,
+        performance: dragonPerformance,
+      });
+      revenant = stepVehicle(revenant, {
+        deltaSeconds: 1 / 60,
+        throttle: 1,
+        brake: 0,
+        steer: 0,
+        handbrake: false,
+        boost: true,
+        trackGrip: 1,
+        performance: revenantPerformance,
+      });
+    }
+
+    expect(revenant.speed).toBeGreaterThan(dragon.speed + 3);
+    expect(revenant.boostFuel).toBeGreaterThan(dragon.boostFuel);
   });
 });

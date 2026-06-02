@@ -3,6 +3,7 @@
 ## Current Focus
 
 - [x] Build a high-quality Three.js racing game baseline with real driving physics, laps, HUD, and browser verification.
+- [x] Add tough racer character selection with stat-changing performance and local GPU portraits.
 
 ## Next Improvements
 
@@ -10,6 +11,7 @@
 
 ## Completed
 
+- [x] Add tough/cool racer selection with generated portraits, persisted choice, and Speed/Launch/Grip/Boost/Impact stat effects.
 - [x] Add child-friendly gross hazards, jump/fall feedback, and opponent bump collisions.
 - [x] Make the car a bit faster and add a significantly more complex track with boost pads and obstacles.
 - [x] Add start-countdown light gantry feedback after live-device feedback.

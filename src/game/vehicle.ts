@@ -21,6 +21,18 @@ export type VehicleInput = {
   readonly boost: boolean;
   readonly boostIntensity?: number;
   readonly trackGrip: number;
+  readonly performance?: VehiclePerformanceProfile;
+};
+
+export type VehiclePerformanceProfile = {
+  readonly speedMultiplier: number;
+  readonly accelerationMultiplier: number;
+  readonly handlingMultiplier: number;
+  readonly gripMultiplier: number;
+  readonly boostMultiplier: number;
+  readonly boostFuelUseMultiplier: number;
+  readonly boostFuelRecoveryMultiplier: number;
+  readonly impactResistance: number;
 };
 
 const maxForwardSpeed = 84;
@@ -37,6 +49,16 @@ const turnRateRadians = 1.75;
 const fullSteeringSpeed = 30;
 const poweredLowSpeedSteeringFloor = 0.32;
 const highSpeedUndersteerStart = 38;
+const neutralPerformance: VehiclePerformanceProfile = {
+  speedMultiplier: 1,
+  accelerationMultiplier: 1,
+  handlingMultiplier: 1,
+  gripMultiplier: 1,
+  boostMultiplier: 1,
+  boostFuelUseMultiplier: 1,
+  boostFuelRecoveryMultiplier: 1,
+  impactResistance: 0,
+};
 
 export function createInitialVehicleState(): VehicleState {
   return {
@@ -54,19 +76,21 @@ export function stepVehicle(state: VehicleState, input: VehicleInput): VehicleSt
   const throttle = clamp(input.throttle, 0, 1);
   const brake = clamp(input.brake, 0, 1);
   const steer = clamp(input.steer, -1, 1);
-  const trackGrip = clamp(input.trackGrip, 0.15, 1.25);
+  const performance = normalizePerformance(input.performance);
+  const effectiveMaxForwardSpeed = maxForwardSpeed * performance.speedMultiplier;
+  const trackGrip = clamp(input.trackGrip * performance.gripMultiplier, 0.15, 1.35);
   const manualBoostActive = input.boost && state.boostFuel > 0 && throttle > 0;
   const boostIntensity = Math.max(manualBoostActive ? 1 : 0, clamp(input.boostIntensity ?? 0, 0, 1.4));
   const boostActive = boostIntensity > 0 && throttle > 0;
 
-  const forwardAcceleration = throttle * throttleAcceleration;
+  const forwardAcceleration = throttle * throttleAcceleration * performance.accelerationMultiplier;
   const braking = brake * (state.speed > 0 ? brakeDeceleration : reverseAcceleration);
-  const boost = boostActive ? boostAcceleration * boostIntensity : 0;
+  const boost = boostActive ? boostAcceleration * performance.boostMultiplier * boostIntensity : 0;
   const drag = Math.sign(state.speed) * (rollingDrag + state.speed * state.speed * aeroDrag);
   const nextSpeed = clamp(
     state.speed + (forwardAcceleration + boost - braking - drag) * deltaSeconds,
     maxReverseSpeed,
-    maxForwardSpeed,
+    effectiveMaxForwardSpeed,
   );
 
   const absSpeed = Math.abs(nextSpeed);
@@ -85,7 +109,8 @@ export function stepVehicle(state: VehicleState, input: VehicleInput): VehicleSt
   const gripSteering = lerp(0.5, 1, clamp(trackGrip, 0, 1));
   const handbrakeRotation = input.handbrake ? 1.12 : 1;
   const steeringAuthority = lowSpeedSteering * highSpeedUndersteer * gripSteering * handbrakeRotation;
-  const headingDelta = turnDirection * speedDirection * turnRateRadians * steeringAuthority * deltaSeconds;
+  const headingDelta =
+    turnDirection * speedDirection * turnRateRadians * performance.handlingMultiplier * steeringAuthority * deltaSeconds;
   const heading = wrapRadians(state.heading + headingDelta);
 
   const speedSlip = clamp((absSpeed - 18) / 54, 0, 1) * 0.11;
@@ -106,7 +131,13 @@ export function stepVehicle(state: VehicleState, input: VehicleInput): VehicleSt
   };
 
   const boostFuel = clamp(
-    state.boostFuel + (manualBoostActive ? -boostFuelUsePerSecond : boostFuelRecoveryPerSecond) * deltaSeconds,
+    state.boostFuel +
+      (
+        manualBoostActive
+          ? -boostFuelUsePerSecond * performance.boostFuelUseMultiplier
+          : boostFuelRecoveryPerSecond * performance.boostFuelRecoveryMultiplier
+      ) *
+        deltaSeconds,
     0,
     1,
   );
@@ -118,6 +149,23 @@ export function stepVehicle(state: VehicleState, input: VehicleInput): VehicleSt
     lateralVelocity,
     drift,
     boostFuel,
+  };
+}
+
+function normalizePerformance(performance: VehiclePerformanceProfile | undefined): VehiclePerformanceProfile {
+  if (!performance) {
+    return neutralPerformance;
+  }
+
+  return {
+    speedMultiplier: clamp(performance.speedMultiplier, 0.72, 1.32),
+    accelerationMultiplier: clamp(performance.accelerationMultiplier, 0.72, 1.32),
+    handlingMultiplier: clamp(performance.handlingMultiplier, 0.72, 1.32),
+    gripMultiplier: clamp(performance.gripMultiplier, 0.72, 1.32),
+    boostMultiplier: clamp(performance.boostMultiplier, 0.72, 1.32),
+    boostFuelUseMultiplier: clamp(performance.boostFuelUseMultiplier, 0.62, 1.28),
+    boostFuelRecoveryMultiplier: clamp(performance.boostFuelRecoveryMultiplier, 0.72, 1.32),
+    impactResistance: clamp(performance.impactResistance, 0, 0.62),
   };
 }
 

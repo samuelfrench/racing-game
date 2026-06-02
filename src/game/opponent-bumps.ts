@@ -19,6 +19,10 @@ export type OpponentBumpResult = {
   readonly state: OpponentBumpState;
 };
 
+export type OpponentBumpOptions = {
+  readonly impactResistance?: number;
+};
+
 const contactRadius = 6.2;
 const cooldownSeconds = 0.34;
 const flashSeconds = 0.22;
@@ -50,6 +54,7 @@ export function resolveOpponentBumps(
   opponents: readonly OpponentState[],
   previous: OpponentBumpState,
   deltaSeconds: number,
+  options: OpponentBumpOptions = {},
 ): OpponentBumpResult {
   const steppedState = stepBumpState(previous, deltaSeconds);
 
@@ -72,9 +77,11 @@ export function resolveOpponentBumps(
   const rightX = Math.cos(vehicle.heading);
   const rightZ = -Math.sin(vehicle.heading);
   const lateralDirection = dot(collision.normalX, collision.normalZ, rightX, rightZ) >= 0 ? 1 : -1;
+  const impactScale = 1 - clamp(options.impactResistance ?? 0, 0, 0.62);
   const impulseAmount = 18 + Math.min(14, Math.abs(vehicle.speed) * 0.24);
-  const lateralImpulse = lateralDirection * impulseAmount * collision.strength;
-  const speedDelta = -Math.sign(vehicle.speed || 1) * Math.min(Math.abs(vehicle.speed), 8 + 8 * collision.strength);
+  const lateralImpulse = lateralDirection * impulseAmount * collision.strength * impactScale;
+  const speedDelta =
+    -Math.sign(vehicle.speed || 1) * Math.min(Math.abs(vehicle.speed), (8 + 8 * collision.strength) * impactScale);
   const pushDistance = 1.05 + collision.overlap * 0.72;
 
   return {

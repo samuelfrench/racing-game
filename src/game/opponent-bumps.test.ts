@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getCharacterById, getCharacterPerformance } from './characters';
 import { createOpponentBumpState, resolveOpponentBumps } from './opponent-bumps';
 import { createOpponentGrid } from './opponents';
 import { createDefaultTrack } from './track';
@@ -45,5 +46,27 @@ describe('opponent bump collisions', () => {
 
     expect(second.state.count).toBe(1);
     expect(second.state.lastOpponentId).toBe(opponent.id);
+  });
+
+  it('uses character impact resistance to reduce speed loss and lateral shove', () => {
+    const opponent = {
+      ...createOpponentGrid(createDefaultTrack(), 1)[0],
+      position: { x: 0, z: 0 },
+      speed: 36,
+    };
+    const dragonPerformance = getCharacterPerformance(getCharacterById('emberclaw-drake'));
+    const ninjaPerformance = getCharacterPerformance(getCharacterById('kage-viper'));
+
+    const dragon = resolveOpponentBumps(baseVehicle, [opponent], createOpponentBumpState(), 1 / 60, {
+      impactResistance: dragonPerformance.impactResistance,
+    });
+    const ninja = resolveOpponentBumps(baseVehicle, [opponent], createOpponentBumpState(), 1 / 60, {
+      impactResistance: ninjaPerformance.impactResistance,
+    });
+
+    expect(Math.abs(dragon.state.lastSpeedDelta)).toBeLessThan(Math.abs(ninja.state.lastSpeedDelta));
+    expect(Math.abs(dragon.state.lastLateralImpulse)).toBeLessThan(Math.abs(ninja.state.lastLateralImpulse));
+    expect(dragon.vehicle.speed).toBeGreaterThan(ninja.vehicle.speed);
+    expect(Math.abs(dragon.vehicle.lateralVelocity)).toBeLessThan(Math.abs(ninja.vehicle.lateralVelocity));
   });
 });

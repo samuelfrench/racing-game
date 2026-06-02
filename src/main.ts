@@ -97,6 +97,12 @@ import {
   type GhostReplayState,
   type GhostReplayStatusState,
 } from './game/ghost-replay';
+import {
+  RACER_CHARACTERS,
+  getCharacterById,
+  getCharacterPerformance,
+  type RacerCharacter,
+} from './game/characters';
 
 type HudElements = {
   lap: HTMLElement;
@@ -126,6 +132,16 @@ type HudElements = {
   grossOverlayLabel: HTMLElement;
 };
 
+type CharacterSelectionElements = {
+  grid: HTMLElement;
+  panel: HTMLElement;
+  portrait: HTMLImageElement;
+  name: HTMLElement;
+  title: HTMLElement;
+  description: HTMLElement;
+  stats: HTMLElement;
+};
+
 type SettingsElements = {
   button: HTMLButtonElement;
   panel: HTMLElement;
@@ -149,6 +165,18 @@ type TouchControlElements = {
 
 type GraphicsProfile = ReturnType<typeof resolveGraphicsProfile>;
 type CameraProfile = ReturnType<typeof resolveCameraProfile>;
+type RacerPerformanceProfile = ReturnType<typeof getCharacterPerformance>;
+
+type CharacterDebugState = {
+  readonly id: string;
+  readonly name: string;
+  readonly title: string;
+  readonly imageSrc: string;
+  readonly carColor: string;
+  readonly accentColor: string;
+  readonly stats: RacerCharacter['stats'];
+  readonly performance: RacerPerformanceProfile;
+};
 
 type DebugState = {
   running: boolean;
@@ -156,6 +184,7 @@ type DebugState = {
   countdownSeconds: number;
   frame: number;
   speed: number;
+  character: CharacterDebugState;
   trackFeedback: TrackFeedbackState;
   trackFeatures: TrackFeatureDebugState;
   grossEffects: GrossEffectsDebugState;
@@ -200,6 +229,17 @@ type DebugState = {
   opponentBumps: OpponentBumpDebugState;
   results: readonly RaceResult[];
 };
+
+const characterStatLabels: ReadonlyArray<{
+  readonly key: keyof RacerCharacter['stats'];
+  readonly label: string;
+}> = [
+  { key: 'speed', label: 'Speed' },
+  { key: 'launch', label: 'Launch' },
+  { key: 'grip', label: 'Grip' },
+  { key: 'boost', label: 'Boost' },
+  { key: 'impact', label: 'Impact' },
+];
 
 type MinimapMarkerDebug = {
   readonly id: string;
@@ -375,6 +415,15 @@ const hud = {
   grossOverlay: mustGet('gross-overlay'),
   grossOverlayLabel: mustGet('gross-overlay-label'),
 } satisfies HudElements;
+const characterElements = {
+  grid: mustGet('character-grid'),
+  panel: mustGet('selected-character-panel'),
+  portrait: mustGet<HTMLImageElement>('selected-character-portrait'),
+  name: mustGet('selected-character-name'),
+  title: mustGet('selected-character-title'),
+  description: mustGet('selected-character-description'),
+  stats: mustGet('selected-character-stats'),
+} satisfies CharacterSelectionElements;
 const settingsElements = {
   button: mustGet<HTMLButtonElement>('settings-button'),
   panel: mustGet('settings-panel'),
@@ -424,6 +473,7 @@ const touchState = createTouchControlState();
 let touchControlsVisible = false;
 const checkpointMeshes = new Map<string, THREE.Object3D>();
 const startPose = getStartPose(track);
+const characterStorageKey = 'neon-harbor-gp.character';
 let vehicle = createVehicleAtStart();
 let progress = createRaceProgress(track.checkpoints, 3);
 let session: RaceSession = createRaceSession();
@@ -452,6 +502,7 @@ let lastFrameTimestamp = performance.now();
 let renderedResultsKey = '';
 let cachedSettingsStorage: SettingsStorage | null | undefined;
 let settings: GameSettings = readStoredGameSettings(getSettingsStorage());
+let selectedCharacter: RacerCharacter = readStoredCharacter(getSettingsStorage());
 let graphicsProfile: GraphicsProfile = resolveGraphicsProfile(settings);
 let cameraProfile: CameraProfile = resolveCameraProfile(settings);
 let speedEffects: SpeedEffectState = computeSpeedEffects({
@@ -509,7 +560,7 @@ const ghostVisualAidState: GhostReplayVisualAidDebugState = {
 const world = buildWorld(track);
 const trackArt = addTracksideObjects(world, track);
 scene.add(world);
-const car = buildCar();
+const car = buildCar(selectedCharacter.carColor, selectedCharacter.accentColor);
 scene.add(car);
 const driftSmoke = buildDriftSmokeVisual();
 car.add(driftSmoke.group);
@@ -528,6 +579,7 @@ const cameraTarget = new THREE.Vector3();
 const cameraPosition = new THREE.Vector3(startPose.x, 38, startPose.z - 58);
 
 setupSettings();
+setupCharacterSelection();
 setupTouchControls();
 applyRuntimeSettings();
 updateRaceAwareness();
@@ -584,6 +636,7 @@ function loop(timestamp = performance.now()): void {
       deltaSeconds,
       boostIntensity: trackFeatures.boostIntensity,
       trackGrip: surface.grip,
+      performance: getCharacterPerformance(selectedCharacter),
     });
     const obstacleResult = applyObstaclePenalty(vehicle, trackFeatures.obstacleSeverity, deltaSeconds);
     vehicle = obstacleResult.vehicle;
@@ -596,7 +649,9 @@ function loop(timestamp = performance.now()): void {
     opponents = stepOpponents(opponents, track, deltaSeconds, true, elapsedSeconds, {
       playerDistance: playerDistanceBeforeBump,
     });
-    const bumpResult = resolveOpponentBumps(vehicle, opponents, opponentBumps, deltaSeconds);
+    const bumpResult = resolveOpponentBumps(vehicle, opponents, opponentBumps, deltaSeconds, {
+      impactResistance: getCharacterPerformance(selectedCharacter).impactResistance,
+    });
     vehicle = bumpResult.vehicle;
     opponentBumps = bumpResult.state;
     const feedbackResult = updateTrackFeedback(trackFeedback, {
@@ -1217,21 +1272,26 @@ function addFinishLineMarkers(
   return markerCount;
 }
 
-function buildCar(bodyColor: THREE.ColorRepresentation = 0xff335f): THREE.Group {
+function buildCar(
+  bodyColor: THREE.ColorRepresentation = 0xff335f,
+  accentColor: THREE.ColorRepresentation = 0x36f1ff,
+): THREE.Group {
   const group = new THREE.Group();
   const bodyMaterial = new THREE.MeshBasicMaterial({ color: bodyColor });
   const cockpitMaterial = new THREE.MeshBasicMaterial({
     color: 0x132d36,
   });
-  const lightMaterial = new THREE.MeshBasicMaterial({ color: 0x36f1ff });
+  const lightMaterial = new THREE.MeshBasicMaterial({ color: accentColor });
   const wheelMaterial = new THREE.MeshBasicMaterial({ color: 0x050607 });
 
   const body = new THREE.Mesh(new THREE.BoxGeometry(4.3, 1.15, 6.6), bodyMaterial);
+  body.userData.paintRole = 'body';
   body.position.y = 1.4;
   body.castShadow = true;
   group.add(body);
 
   const nose = new THREE.Mesh(new THREE.BoxGeometry(3.7, 0.55, 2.4), bodyMaterial);
+  nose.userData.paintRole = 'body';
   nose.position.set(0, 1.08, 3.35);
   nose.castShadow = true;
   group.add(nose);
@@ -1242,11 +1302,13 @@ function buildCar(bodyColor: THREE.ColorRepresentation = 0xff335f): THREE.Group 
   group.add(cockpit);
 
   const splitter = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.16, 0.28), lightMaterial);
+  splitter.userData.paintRole = 'accent';
   splitter.position.set(0, 0.78, 3.95);
   group.add(splitter);
 
   for (const x of [-1.35, 1.35]) {
     const headlight = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.22, 0.34), lightMaterial);
+    headlight.userData.paintRole = 'accent';
     headlight.position.set(x, 1.14, 3.72);
     group.add(headlight);
   }
@@ -1262,11 +1324,36 @@ function buildCar(bodyColor: THREE.ColorRepresentation = 0xff335f): THREE.Group 
   }
 
   const wing = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.22, 0.7), bodyMaterial);
+  wing.userData.paintRole = 'body';
   wing.position.set(0, 2.12, -3.45);
   wing.castShadow = true;
   group.add(wing);
 
   return group;
+}
+
+function updateCarPaint(
+  target: THREE.Object3D,
+  bodyColor: THREE.ColorRepresentation,
+  accentColor: THREE.ColorRepresentation,
+): void {
+  target.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) {
+      return;
+    }
+
+    const material = object.material;
+    if (!(material instanceof THREE.MeshBasicMaterial)) {
+      return;
+    }
+
+    if (object.userData.paintRole === 'body') {
+      material.color.set(bodyColor);
+    }
+    if (object.userData.paintRole === 'accent') {
+      material.color.set(accentColor);
+    }
+  });
 }
 
 function buildGhostCar(): THREE.Group {
@@ -2057,6 +2144,99 @@ function setupSettings(): void {
     syncSettingsControls();
     applyRuntimeSettings();
   });
+}
+
+function setupCharacterSelection(): void {
+  characterElements.grid.textContent = '';
+  characterElements.grid.style.setProperty('--character-accent', selectedCharacter.accentColor);
+
+  for (const character of RACER_CHARACTERS) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'character-card';
+    button.dataset.characterId = character.id;
+    button.setAttribute('role', 'option');
+    button.style.setProperty('--character-accent', character.accentColor);
+
+    const portrait = document.createElement('img');
+    portrait.src = character.imageSrc;
+    portrait.alt = `${character.name} portrait`;
+    portrait.width = 512;
+    portrait.height = 512;
+
+    const name = document.createElement('strong');
+    name.textContent = character.name;
+
+    const title = document.createElement('span');
+    title.textContent = character.title;
+
+    button.append(portrait, name, title);
+    button.addEventListener('click', () => {
+      selectCharacter(character.id);
+    });
+    characterElements.grid.append(button);
+  }
+
+  syncCharacterSelection();
+}
+
+function selectCharacter(id: string): void {
+  selectedCharacter = getCharacterById(id);
+  writeStoredCharacter(getSettingsStorage(), selectedCharacter);
+  syncCharacterSelection();
+  updateCarPaint(car, selectedCharacter.carColor, selectedCharacter.accentColor);
+  window.__racingGameDebug = createDebugState();
+}
+
+function syncCharacterSelection(): void {
+  characterElements.grid.style.setProperty('--character-accent', selectedCharacter.accentColor);
+  characterElements.panel.style.setProperty('--character-accent', selectedCharacter.accentColor);
+  characterElements.portrait.src = selectedCharacter.imageSrc;
+  characterElements.portrait.alt = `${selectedCharacter.name} portrait`;
+  characterElements.name.textContent = selectedCharacter.name;
+  characterElements.title.textContent = selectedCharacter.title;
+  characterElements.description.textContent = selectedCharacter.description;
+
+  for (const card of characterElements.grid.querySelectorAll<HTMLButtonElement>('[data-character-id]')) {
+    const selected = card.dataset.characterId === selectedCharacter.id;
+    card.setAttribute('aria-selected', String(selected));
+    card.tabIndex = selected ? 0 : -1;
+  }
+
+  characterElements.stats.textContent = '';
+  for (const stat of characterStatLabels) {
+    const row = document.createElement('div');
+    row.className = 'character-stat';
+    row.dataset.characterStat = stat.key;
+
+    const label = document.createElement('span');
+    label.textContent = stat.label;
+
+    const meter = document.createElement('meter');
+    meter.min = 0;
+    meter.max = 5;
+    meter.value = selectedCharacter.stats[stat.key];
+    meter.setAttribute('aria-label', `${stat.label} ${selectedCharacter.stats[stat.key]} of 5`);
+
+    row.append(label, meter);
+    characterElements.stats.append(row);
+  }
+}
+
+function readStoredCharacter(storage: SettingsStorage | null): RacerCharacter {
+  try {
+    return getCharacterById(storage?.getItem(characterStorageKey));
+  } catch {
+    return getCharacterById(null);
+  }
+}
+
+function writeStoredCharacter(storage: SettingsStorage | null, character: RacerCharacter): void {
+  try {
+    storage?.setItem(characterStorageKey, character.id);
+  } catch {
+    // Browser privacy modes can block storage; the in-memory selection still works.
+  }
 }
 
 function getSettingsStorage(): SettingsStorage | null {
@@ -2983,6 +3163,7 @@ function createDebugState(): DebugState {
     countdownSeconds: session.countdownSeconds,
     frame,
     speed: vehicle.speed,
+    character: createCharacterDebugState(),
     trackFeedback: { ...trackFeedback },
     trackFeatures: { ...trackFeatures },
     grossEffects: createGrossEffectsDebugState(grossEffects),
@@ -3055,6 +3236,19 @@ function createDebugState(): DebugState {
     })),
     opponentBumps: createOpponentBumpDebugState(opponentBumps),
     results: session.results.map((result) => ({ ...result })),
+  };
+}
+
+function createCharacterDebugState(): CharacterDebugState {
+  return {
+    id: selectedCharacter.id,
+    name: selectedCharacter.name,
+    title: selectedCharacter.title,
+    imageSrc: selectedCharacter.imageSrc,
+    carColor: selectedCharacter.carColor,
+    accentColor: selectedCharacter.accentColor,
+    stats: { ...selectedCharacter.stats },
+    performance: { ...getCharacterPerformance(selectedCharacter) },
   };
 }
 

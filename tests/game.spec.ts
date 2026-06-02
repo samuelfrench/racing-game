@@ -6,6 +6,31 @@ type DebugState = {
   countdownSeconds: number;
   frame: number;
   speed: number;
+  character: {
+    id: string;
+    name: string;
+    title: string;
+    imageSrc: string;
+    carColor: string;
+    accentColor: string;
+    stats: {
+      speed: number;
+      launch: number;
+      grip: number;
+      boost: number;
+      impact: number;
+    };
+    performance: {
+      speedMultiplier: number;
+      accelerationMultiplier: number;
+      handlingMultiplier: number;
+      gripMultiplier: number;
+      boostMultiplier: number;
+      boostFuelUseMultiplier: number;
+      boostFuelRecoveryMultiplier: number;
+      impactResistance: number;
+    };
+  };
   trackFeedback: {
     distanceFromCenter: number;
     offTrack: boolean;
@@ -254,6 +279,62 @@ const viewports = [
   { name: 'tablet', width: 768, height: 720 },
   { name: 'mobile', width: 390, height: 844 },
 ] as const;
+
+test('character selection loads tough racers, persists choice, and exposes race performance stats', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
+
+  const cards = page.locator('[data-character-id]');
+  await expect(cards).toHaveCount(4);
+  await expect(page.locator('[data-character-id="emberclaw-drake"]')).toContainText('Emberclaw Drake');
+  await expect(page.locator('[data-character-id="kage-viper"]')).toContainText('Kage Viper');
+  await expect(page.locator('[data-character-id="iron-valkyrie"]')).toContainText('Iron Valkyrie');
+  await expect(page.locator('[data-character-id="void-revenant"]')).toContainText('Void Revenant');
+  await expect(page.locator('#selected-character-stats [data-character-stat]')).toHaveCount(5);
+
+  const defaultDebug = await readDebug(page);
+  expect(defaultDebug.character).toMatchObject({
+    id: 'emberclaw-drake',
+    name: 'Emberclaw Drake',
+  });
+  expect(defaultDebug.character.stats.impact).toBe(5);
+
+  await page.locator('[data-character-id="kage-viper"]').click();
+  await expect(page.locator('[data-character-id="kage-viper"]')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#selected-character-name')).toHaveText('Kage Viper');
+  await expect(page.locator('#selected-character-title')).toContainText('Ninja');
+  await expect.poll(() => readDebug(page).then((debug) => debug.character.id)).toBe('kage-viper');
+
+  const ninjaPortraitLoaded = await page.locator('[data-character-id="kage-viper"] img').evaluate((image) => {
+    const portrait = image as HTMLImageElement;
+    return portrait.complete && portrait.naturalWidth >= 512 && portrait.naturalHeight >= 512;
+  });
+  expect(ninjaPortraitLoaded).toBe(true);
+
+  const ninjaDebug = await readDebug(page);
+  expect(ninjaDebug.character.performance.accelerationMultiplier).toBeGreaterThan(
+    defaultDebug.character.performance.accelerationMultiplier,
+  );
+  expect(ninjaDebug.character.performance.handlingMultiplier).toBeGreaterThan(
+    defaultDebug.character.performance.handlingMultiplier,
+  );
+  expect(ninjaDebug.character.performance.impactResistance).toBeLessThan(
+    defaultDebug.character.performance.impactResistance,
+  );
+
+  await page.reload();
+  await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized after reload' }).toBe(true);
+  await expect(page.locator('[data-character-id="kage-viper"]')).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(() => readDebug(page).then((debug) => debug.character.id)).toBe('kage-viper');
+
+  await page.locator('#start-button').click();
+  await expect.poll(() => readDebug(page).then((debug) => debug.phase), { timeout: 5_000 }).toBe('countdown');
+  const startedDebug = await readDebug(page);
+  expect(startedDebug.character.id).toBe('kage-viper');
+  expect(startedDebug.character.carColor).toMatch(/^#[0-9a-f]{6}$/);
+  expect(startedDebug.character.imageSrc).toBe('/images/characters/kage-viper.jpg');
+});
 
 for (const viewport of viewports) {
   test(`renders and drives on ${viewport.name}`, async ({ page }) => {

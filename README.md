@@ -1,6 +1,6 @@
 # Neon Harbor GP
 
-Three.js arcade racing prototype with deterministic vehicle physics, countdown starts, launch-paced AI opponents, boundary recovery and wrong-way feedback, gap-aware live race position, ranked track minimap with heading/progress cues, ordered checkpoints, live lap splits and sector delta timing, post-race lap and sector split summaries, boost, drift input, synthesized race audio, finish results, speed-responsive camera effects, animated trackside art, and browser-level gameplay verification.
+Three.js arcade racing prototype with selectable racer characters that change stats, deterministic vehicle physics, countdown starts, launch-paced AI opponents, boundary recovery and wrong-way feedback, gap-aware live race position, ranked track minimap with heading/progress cues, ordered checkpoints, live lap splits and sector delta timing, post-race lap and sector split summaries, boost, drift input, synthesized race audio, finish results, speed-responsive camera effects, animated trackside art, and browser-level gameplay verification.
 
 ## Run
 
@@ -21,9 +21,12 @@ Pushes to `main` run the GitHub Actions deploy workflow and publish the built ga
 - `D` / `ArrowRight`: steer right
 - `Space`: handbrake drift
 - `Shift`: boost
+- `J`: jump gross hazards
 - `R`: reset race
 - `Escape`: open or close race settings
-- Touch controls: on mobile, use the fixed on-screen buttons for left, right, gas, brake, drift, and boost.
+- Touch controls: on mobile, use the fixed on-screen buttons for left, right, gas, brake, drift, boost, and jump.
+
+Choose a racer on the start screen before launching. Racer choice persists in browser storage and changes top speed, launch, grip, boost, and impact resistance.
 
 ## Settings
 
