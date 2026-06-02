@@ -6,10 +6,11 @@
 
 ## Next Improvements
 
-- [ ] Add start-countdown light gantry feedback after live-device feedback.
+- [ ] Add trackside braking reference boards after live-device feedback.
 
 ## Completed
 
+- [x] Add start-countdown light gantry feedback after live-device feedback.
 - [x] Add finish-line visual emphasis after live-device feedback.
 - [x] Harden GitHub Actions action versions to clear the Node20 deprecation annotation.
 - [x] Tune chase camera look-ahead and framing after live-device feedback.

@@ -241,14 +241,26 @@ type TrackArtDebug = {
   readonly lightMasts: number;
   readonly speedStreaks: number;
   readonly finishMarkers: number;
+  readonly startLights: StartLightDebug;
+};
+
+type StartLightDebug = {
+  readonly activeRedLights: number;
+  readonly greenLit: boolean;
+  readonly state: 'idle' | 'countdown' | 'go';
 };
 
 type TrackArtMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+type StartLightMesh = THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
 
 type AnimatedTrackArt = {
   readonly crowdPanels: readonly TrackArtMesh[];
   readonly lightMasts: readonly TrackArtMesh[];
   readonly speedStreaks: readonly TrackArtMesh[];
+  readonly startLights: {
+    readonly redLights: readonly StartLightMesh[];
+    readonly greenLight: StartLightMesh;
+  };
   readonly debug: TrackArtDebug;
 };
 
@@ -414,7 +426,6 @@ const ghostVisualAidState: GhostReplayVisualAidDebugState = {
   scale: 1,
   color: '#36f1ff',
 };
-
 const world = buildWorld(track);
 const trackArt = addTracksideObjects(world, track);
 scene.add(world);
@@ -525,6 +536,7 @@ function loop(timestamp = performance.now()): void {
   updateCamera(deltaSeconds);
   updateSpeedEffects();
   animateTrackArt(deltaSeconds);
+  updateStartLights();
   updateHud(progress, vehicle);
   updateRaceAwareness();
   updateResultsBoard();
@@ -656,6 +668,9 @@ function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinitio
   const finishWhiteMaterial = new THREE.MeshBasicMaterial({ color: 0xf8fbff });
   const finishBlackMaterial = new THREE.MeshBasicMaterial({ color: 0x050607 });
   const finishAccentMaterial = new THREE.MeshBasicMaterial({ color: 0xffe66b });
+  const startLightOffMaterial = new THREE.MeshBasicMaterial({ color: 0x231217 });
+  const startLightRedMaterial = new THREE.MeshBasicMaterial({ color: 0xff335f });
+  const startLightGreenMaterial = new THREE.MeshBasicMaterial({ color: 0x63f7a4 });
   const streakMaterial = new THREE.MeshBasicMaterial({
     color: 0x9af7ff,
     opacity: 0,
@@ -667,10 +682,16 @@ function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinitio
   const crowdPanels: TrackArtMesh[] = [];
   const lightMasts: TrackArtMesh[] = [];
   const speedStreaks: TrackArtMesh[] = [];
+  const startLights = createStartLightMeshes({
+    off: startLightOffMaterial,
+    red: startLightRedMaterial,
+    green: startLightGreenMaterial,
+  });
   const finishMarkers = addFinishLineMarkers(group, trackDefinition, {
     accent: finishAccentMaterial,
     black: finishBlackMaterial,
     white: finishWhiteMaterial,
+    startLights,
   });
 
   forEachSegment(trackDefinition.centerline, (start, end, index) => {
@@ -800,14 +821,41 @@ function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinitio
     crowdPanels,
     lightMasts,
     speedStreaks,
+    startLights,
     debug: {
       chevrons,
       crowdPanels: crowdPanels.length,
       lightMasts: lightMasts.length,
       speedStreaks: speedStreaks.length,
       finishMarkers,
+      startLights: {
+        activeRedLights: 0,
+        greenLit: false,
+        state: 'idle',
+      },
     },
   };
+}
+
+function createStartLightMeshes(materials: {
+  readonly off: THREE.MeshBasicMaterial;
+  readonly red: THREE.MeshBasicMaterial;
+  readonly green: THREE.MeshBasicMaterial;
+}): {
+  readonly redLights: readonly StartLightMesh[];
+  readonly greenLight: StartLightMesh;
+} {
+  const lightGeometry = new THREE.SphereGeometry(0.92, 18, 12);
+  const redLights = Array.from({ length: 4 }, () => new THREE.Mesh(lightGeometry, materials.off.clone()));
+  const greenLight = new THREE.Mesh(lightGeometry, materials.off.clone());
+
+  for (const light of [...redLights, greenLight]) {
+    light.userData.offMaterial = materials.off;
+    light.userData.redMaterial = materials.red;
+    light.userData.greenMaterial = materials.green;
+  }
+
+  return { redLights, greenLight };
 }
 
 function addFinishLineMarkers(
@@ -816,6 +864,10 @@ function addFinishLineMarkers(
   materials: {
     readonly accent: THREE.MeshBasicMaterial;
     readonly black: THREE.MeshBasicMaterial;
+    readonly startLights: {
+      readonly redLights: readonly StartLightMesh[];
+      readonly greenLight: StartLightMesh;
+    };
     readonly white: THREE.MeshBasicMaterial;
   },
 ): number {
@@ -890,6 +942,14 @@ function addFinishLineMarkers(
   glow.position.set(0, 14.8, 0);
   gantryGroup.add(glow);
   markerCount += 1;
+
+  const allLights = [...materials.startLights.redLights, materials.startLights.greenLight];
+  for (let index = 0; index < allLights.length; index += 1) {
+    const light = allLights[index];
+    light.position.set((index - 2) * 2.35, 15.55, 0.92);
+    gantryGroup.add(light);
+    markerCount += 1;
+  }
 
   group.add(gantryGroup);
   return markerCount;
@@ -1185,6 +1245,35 @@ function updateSpeedEffects(): void {
     streak.visible = speedEffects.intensity > 0.12 && index < graphicsProfile.speedStreaksVisible;
     streak.material.opacity = speedEffects.streakOpacity * (index % 3 === 0 ? 0.82 : 1);
   });
+}
+
+function updateStartLights(): void {
+  const startLights = getStartLightDebug(session);
+
+  trackArt.startLights.redLights.forEach((light, index) => {
+    light.material = index < startLights.activeRedLights
+      ? light.userData.redMaterial as THREE.MeshBasicMaterial
+      : light.userData.offMaterial as THREE.MeshBasicMaterial;
+  });
+  trackArt.startLights.greenLight.material = startLights.greenLit
+    ? trackArt.startLights.greenLight.userData.greenMaterial as THREE.MeshBasicMaterial
+    : trackArt.startLights.greenLight.userData.offMaterial as THREE.MeshBasicMaterial;
+}
+
+function getStartLightDebug(currentSession: RaceSession): StartLightDebug {
+  const greenLit = currentSession.phase === 'racing';
+  return {
+    activeRedLights: getActiveStartRedLights(currentSession),
+    greenLit,
+    state: greenLit ? 'go' : currentSession.phase === 'countdown' ? 'countdown' : 'idle',
+  };
+}
+
+function getActiveStartRedLights(currentSession: RaceSession): number {
+  if (currentSession.phase !== 'countdown') {
+    return 0;
+  }
+  return clamp(Math.ceil(4 - currentSession.countdownSeconds), 1, 4);
 }
 
 function animateTrackArt(deltaSeconds: number): void {
@@ -2337,7 +2426,10 @@ function createDebugState(): DebugState {
     },
     driftSmoke: { ...driftSmokeEffect },
     audio: audioEngine.getDebugState(),
-    trackArt: trackArt.debug,
+    trackArt: {
+      ...trackArt.debug,
+      startLights: getStartLightDebug(session),
+    },
     settings: { ...settings },
     graphics: {
       quality: graphicsProfile.quality,

@@ -48,6 +48,11 @@ type DebugState = {
     lightMasts: number;
     speedStreaks: number;
     finishMarkers: number;
+    startLights: {
+      activeRedLights: number;
+      greenLit: boolean;
+      state: 'idle' | 'countdown' | 'go';
+    };
   };
   settings: {
     graphicsQuality: 'high' | 'balanced' | 'low';
@@ -282,6 +287,11 @@ for (const viewport of viewports) {
     expect(initialDebug.trackArt.lightMasts).toBeGreaterThanOrEqual(10);
     expect(initialDebug.trackArt.speedStreaks).toBeGreaterThanOrEqual(12);
     expect(initialDebug.trackArt.finishMarkers).toBeGreaterThanOrEqual(16);
+    expect(initialDebug.trackArt.startLights).toEqual({
+      activeRedLights: 0,
+      greenLit: false,
+      state: 'idle',
+    });
     expect(initialDebug.racePosition.participants).toHaveLength(4);
     expect(initialDebug.opponents.every((opponent) => opponent.pressureBonus === 0)).toBe(true);
     expect(initialDebug.opponents.every((opponent) => opponent.peakPressureBonus === 0)).toBe(true);
@@ -316,11 +326,19 @@ for (const viewport of viewports) {
     await page.keyboard.down('Shift');
     await page.waitForTimeout(700);
     const duringCountdown = await readDebug(page);
+    expect(duringCountdown.trackArt.startLights.activeRedLights).toBeGreaterThanOrEqual(1);
+    expect(duringCountdown.trackArt.startLights.greenLit).toBe(false);
+    expect(duringCountdown.trackArt.startLights.state).toBe('countdown');
     expect(Math.hypot(duringCountdown.carX - countdownStart.carX, duringCountdown.carZ - countdownStart.carZ)).toBeLessThan(0.75);
     expect(duringCountdown.opponents).toHaveLength(3);
 
     await expect.poll(() => readDebug(page).then((debug) => debug.phase), { timeout: 5_000 }).toBe('racing');
     const racingStart = await readDebug(page);
+    expect(racingStart.trackArt.startLights).toEqual({
+      activeRedLights: 0,
+      greenLit: true,
+      state: 'go',
+    });
     await expect
       .poll(() => readDebug(page).then((debug) => debug.timing.currentLapSeconds ?? 0), {
         message: 'current lap timer advances after launch',
