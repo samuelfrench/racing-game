@@ -333,7 +333,7 @@ test('character selection loads tough racers, persists choice, and exposes race 
   const startedDebug = await readDebug(page);
   expect(startedDebug.character.id).toBe('kage-viper');
   expect(startedDebug.character.carColor).toMatch(/^#[0-9a-f]{6}$/);
-  expect(startedDebug.character.imageSrc).toBe('/images/characters/kage-viper.jpg');
+  expect(startedDebug.character.imageSrc).toMatch(/\/images\/characters\/kage-viper\.jpg$/);
 });
 
 for (const viewport of viewports) {

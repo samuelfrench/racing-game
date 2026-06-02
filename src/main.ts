@@ -2159,7 +2159,7 @@ function setupCharacterSelection(): void {
     button.style.setProperty('--character-accent', character.accentColor);
 
     const portrait = document.createElement('img');
-    portrait.src = character.imageSrc;
+    portrait.src = resolvePublicAssetSrc(character.imageSrc);
     portrait.alt = `${character.name} portrait`;
     portrait.width = 512;
     portrait.height = 512;
@@ -2191,7 +2191,7 @@ function selectCharacter(id: string): void {
 function syncCharacterSelection(): void {
   characterElements.grid.style.setProperty('--character-accent', selectedCharacter.accentColor);
   characterElements.panel.style.setProperty('--character-accent', selectedCharacter.accentColor);
-  characterElements.portrait.src = selectedCharacter.imageSrc;
+  characterElements.portrait.src = resolvePublicAssetSrc(selectedCharacter.imageSrc);
   characterElements.portrait.alt = `${selectedCharacter.name} portrait`;
   characterElements.name.textContent = selectedCharacter.name;
   characterElements.title.textContent = selectedCharacter.title;
@@ -2237,6 +2237,10 @@ function writeStoredCharacter(storage: SettingsStorage | null, character: RacerC
   } catch {
     // Browser privacy modes can block storage; the in-memory selection still works.
   }
+}
+
+function resolvePublicAssetSrc(path: string): string {
+  return `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`;
 }
 
 function getSettingsStorage(): SettingsStorage | null {
@@ -3244,7 +3248,7 @@ function createCharacterDebugState(): CharacterDebugState {
     id: selectedCharacter.id,
     name: selectedCharacter.name,
     title: selectedCharacter.title,
-    imageSrc: selectedCharacter.imageSrc,
+    imageSrc: resolvePublicAssetSrc(selectedCharacter.imageSrc),
     carColor: selectedCharacter.carColor,
     accentColor: selectedCharacter.accentColor,
     stats: { ...selectedCharacter.stats },
