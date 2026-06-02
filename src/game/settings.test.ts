@@ -182,12 +182,12 @@ describe('settings state', () => {
   test('resolves camera mode profiles', () => {
     expect(resolveCameraProfile({ cameraMode: 'chase' })).toEqual({
       mode: 'chase',
-      chaseDistance: 58,
-      chaseHeight: 28,
-      lookAhead: 30,
-      targetHeight: 3.6,
-      lerpSpeed: 5.5,
-      targetLerpSpeed: 7,
+      chaseDistance: 50,
+      chaseHeight: 24,
+      lookAhead: 46,
+      targetHeight: 4.2,
+      lerpSpeed: 6.4,
+      targetLerpSpeed: 8.4,
       fovOffset: 0,
     });
     expect(resolveCameraProfile({ cameraMode: 'far' })).toEqual({

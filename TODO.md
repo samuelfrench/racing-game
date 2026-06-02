@@ -6,10 +6,11 @@
 
 ## Next Improvements
 
-- [ ] Tune chase camera look-ahead and framing after live-device feedback.
+- [ ] Harden GitHub Actions action versions to clear the Node20 deprecation annotation.
 
 ## Completed
 
+- [x] Tune chase camera look-ahead and framing after live-device feedback.
 - [x] Add opponent proximity cues after live-device feedback.
 - [x] Add opponent proximity passing lines.
 - [x] Move opponents onto dynamic racing lines through corners.

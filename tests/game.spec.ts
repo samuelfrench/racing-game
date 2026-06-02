@@ -755,10 +755,10 @@ test('settings persist and affect race runtime debug state on desktop', async ({
   });
   expect(debug.camera).toMatchObject({
     mode: 'chase',
-    chaseDistance: 58,
-    chaseHeight: 28,
-    lookAhead: 30,
-    targetHeight: 3.6,
+    chaseDistance: 50,
+    chaseHeight: 24,
+    lookAhead: 46,
+    targetHeight: 4.2,
   });
   expect(debug.controlHintsVisible).toBe(true);
   await expect(page.locator('body')).not.toHaveClass(/settings-high-contrast/);
