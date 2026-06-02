@@ -17,6 +17,7 @@ const squareTrack: TrackDefinition = {
   checkpoints: [],
   boostPads: [],
   obstacles: [],
+  grossHazards: [],
 };
 
 function raceProgress(overrides: Partial<RaceProgress> = {}): RaceProgress {

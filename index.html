@@ -123,6 +123,7 @@
         <span><strong>Steer</strong> A/D or Arrows</span>
         <span><strong>Drift</strong> Space</span>
         <span><strong>Boost</strong> Shift</span>
+        <span><strong>Jump</strong> J</span>
         <span><strong>Reset</strong> R</span>
       </section>
       <section id="touch-controls" class="touch-controls hidden" aria-label="Touch controls" hidden>
@@ -135,6 +136,7 @@
           <button id="touch-brake" type="button" data-touch-action="brake" aria-label="Brake">Brake</button>
           <button id="touch-drift" type="button" data-touch-action="drift" aria-label="Drift">Drift</button>
           <button id="touch-boost" type="button" data-touch-action="boost" aria-label="Boost">Boost</button>
+          <button id="touch-jump" type="button" data-touch-action="jump" aria-label="Jump">Jump</button>
         </div>
       </section>
       <section id="start-panel" aria-label="Game start">
@@ -145,6 +147,20 @@
         </div>
       </section>
       <div id="speed-vignette" aria-hidden="true"></div>
+      <div id="gross-overlay" class="gross-overlay" data-effect="none" aria-hidden="true">
+        <div class="gross-pee-splashes">
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <div class="gross-poop-splat">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <div id="gross-overlay-label" class="gross-overlay-label"></div>
+      </div>
       <canvas id="game-canvas" aria-label="Three dimensional racing game"></canvas>
     </main>
     <script type="module" src="/src/main.ts"></script>

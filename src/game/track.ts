@@ -20,6 +20,13 @@ export type TrackObstacle = TrackPoint & {
   readonly severity: number;
 };
 
+export type TrackGrossHazard = TrackPoint & {
+  readonly id: string;
+  readonly kind: 'peeSprayer' | 'poopLog';
+  readonly radius: number;
+  readonly severity: number;
+};
+
 export type TrackDefinition = {
   readonly name: string;
   readonly roadWidth: number;
@@ -28,6 +35,7 @@ export type TrackDefinition = {
   readonly checkpoints: readonly TrackCheckpoint[];
   readonly boostPads: readonly TrackBoostPad[];
   readonly obstacles: readonly TrackObstacle[];
+  readonly grossHazards: readonly TrackGrossHazard[];
 };
 
 export type TrackSurfaceSample = {
@@ -39,6 +47,7 @@ export type TrackSurfaceSample = {
 export type TrackFeatureEffects = {
   readonly boostPad: TrackBoostPad | null;
   readonly obstacle: TrackObstacle | null;
+  readonly grossHazard: TrackGrossHazard | null;
 };
 
 const centerline: readonly TrackPoint[] = [
@@ -75,6 +84,11 @@ const obstacles: readonly TrackObstacle[] = [
   { id: 'tunnel-debris', x: -106, z: 76, radius: 5, severity: 0.5 },
 ];
 
+const grossHazards: readonly TrackGrossHazard[] = [
+  { id: 'piddle-sprayer', kind: 'peeSprayer', x: 116, z: 82, radius: 6.2, severity: 0.42 },
+  { id: 'stinky-log', kind: 'poopLog', x: -120, z: 46, radius: 6.8, severity: 0.76 },
+];
+
 export function createDefaultTrack(): TrackDefinition {
   const roadWidth = 22;
   const checkpointRadius = roadWidth * 0.75;
@@ -96,6 +110,7 @@ export function createDefaultTrack(): TrackDefinition {
     ],
     boostPads,
     obstacles,
+    grossHazards,
   };
 }
 
@@ -121,6 +136,7 @@ export function sampleTrackFeatureEffects(track: TrackDefinition, x: number, z: 
   return {
     boostPad: findNearestFeature(track.boostPads, x, z),
     obstacle: findNearestFeature(track.obstacles, x, z),
+    grossHazard: findNearestFeature(track.grossHazards, x, z),
   };
 }
 

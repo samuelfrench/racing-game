@@ -8,5 +8,9 @@ describe('input mapping', () => {
     expect(resolveInputFromKeys(new Set(['arrowright'])).steer).toBe(1);
     expect(resolveInputFromKeys(new Set(['d'])).steer).toBe(1);
   });
-});
 
+  it('maps jump to a separate obstacle-clearing input', () => {
+    expect(resolveInputFromKeys(new Set(['j'])).jump).toBe(true);
+    expect(resolveInputFromKeys(new Set([' '])).jump).toBe(false);
+  });
+});

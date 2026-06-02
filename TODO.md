@@ -10,6 +10,7 @@
 
 ## Completed
 
+- [x] Add child-friendly gross hazards, jump/fall feedback, and opponent bump collisions.
 - [x] Make the car a bit faster and add a significantly more complex track with boost pads and obstacles.
 - [x] Add start-countdown light gantry feedback after live-device feedback.
 - [x] Add finish-line visual emphasis after live-device feedback.

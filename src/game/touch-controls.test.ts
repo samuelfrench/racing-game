@@ -18,11 +18,12 @@ const neutralInput: ControlInput = {
   steer: 0,
   handbrake: false,
   boost: false,
+  jump: false,
 };
 
 describe('touch controls state', () => {
   test('exposes the supported touch actions in stable UI order', () => {
-    expect(TOUCH_ACTIONS).toEqual(['left', 'right', 'throttle', 'brake', 'drift', 'boost']);
+    expect(TOUCH_ACTIONS).toEqual(['left', 'right', 'throttle', 'brake', 'drift', 'boost', 'jump']);
   });
 
   test('tracks active pointer ids independently per action', () => {
@@ -68,6 +69,7 @@ describe('touch controls input resolution', () => {
     setTouchActionActive(state, 'left', 2);
     setTouchActionActive(state, 'drift', 3);
     setTouchActionActive(state, 'boost', 4);
+    setTouchActionActive(state, 'jump', 5);
 
     expect(resolveTouchInput(state)).toEqual({
       throttle: 1,
@@ -75,6 +77,7 @@ describe('touch controls input resolution', () => {
       steer: -1,
       handbrake: true,
       boost: true,
+      jump: true,
     });
   });
 
@@ -94,6 +97,7 @@ describe('touch controls input resolution', () => {
       steer: 0.8,
       handbrake: false,
       boost: true,
+      jump: false,
     };
     const touch: ControlInput = {
       throttle: 1,
@@ -101,6 +105,7 @@ describe('touch controls input resolution', () => {
       steer: 0.7,
       handbrake: true,
       boost: false,
+      jump: true,
     };
 
     expect(mergeControlInputs(keyboard, touch)).toEqual({
@@ -109,6 +114,7 @@ describe('touch controls input resolution', () => {
       steer: 1,
       handbrake: true,
       boost: true,
+      jump: true,
     });
     expect(mergeControlInputs({ ...neutralInput, steer: -0.9 }, { ...neutralInput, steer: -0.5 }).steer).toBe(-1);
   });

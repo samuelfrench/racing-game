@@ -50,6 +50,10 @@ type DebugState = {
     finishMarkers: number;
     boostPads: number;
     obstacles: number;
+    grossHazards: {
+      peeSprayers: number;
+      poopLogs: number;
+    };
     startLights: {
       activeRedLights: number;
       greenLit: boolean;
@@ -64,6 +68,21 @@ type DebugState = {
     boostIntensity: number;
     obstacleSeverity: number;
     lastObstacleSpeedDelta: number;
+    grossHazardKind: 'peeSprayer' | 'poopLog' | null;
+    activeGrossHazardId: string | null;
+  };
+  grossEffects: {
+    activeEffect: 'none' | 'pee' | 'poop';
+    peeOverlayOpacity: number;
+    poopOverlayOpacity: number;
+    jumpActive: boolean;
+    jumpHeight: number;
+    peeSplashes: number;
+    poopFalls: number;
+    poopJumps: number;
+    lastPeeHazardId: string | null;
+    lastPoopHazardId: string | null;
+    lastPoopOutcome: 'none' | 'jumped' | 'fell';
   };
   settings: {
     graphicsQuality: 'high' | 'balanced' | 'low';
@@ -100,7 +119,15 @@ type DebugState = {
       steer: number;
       handbrake: boolean;
       boost: boolean;
+      jump: boolean;
     };
+  };
+  opponentBumps: {
+    active: boolean;
+    count: number;
+    lastOpponentId: string | null;
+    lastSpeedDelta: number;
+    lastLateralImpulse: number;
   };
   racePosition: {
     position: number;
@@ -216,6 +243,8 @@ declare global {
       finishRace: () => void;
       placeOnBoostPad: (index?: number) => void;
       placeOnObstacle: (index?: number) => void;
+      placeOnGrossHazard: (kind: 'peeSprayer' | 'poopLog') => void;
+      placeNearOpponent: (index?: number) => void;
     };
   }
 }
@@ -302,6 +331,10 @@ for (const viewport of viewports) {
     expect(initialDebug.trackArt.finishMarkers).toBeGreaterThanOrEqual(16);
     expect(initialDebug.trackArt.boostPads).toBeGreaterThanOrEqual(4);
     expect(initialDebug.trackArt.obstacles).toBeGreaterThanOrEqual(5);
+    expect(initialDebug.trackArt.grossHazards).toEqual({
+      peeSprayers: 1,
+      poopLogs: 1,
+    });
     expect(initialDebug.trackArt.startLights).toEqual({
       activeRedLights: 0,
       greenLit: false,
@@ -314,6 +347,28 @@ for (const viewport of viewports) {
       lastObstacleId: null,
       boostIntensity: 0,
       obstacleSeverity: 0,
+      grossHazardKind: null,
+      activeGrossHazardId: null,
+    });
+    expect(initialDebug.grossEffects).toMatchObject({
+      activeEffect: 'none',
+      peeOverlayOpacity: 0,
+      poopOverlayOpacity: 0,
+      jumpActive: false,
+      jumpHeight: 0,
+      peeSplashes: 0,
+      poopFalls: 0,
+      poopJumps: 0,
+      lastPeeHazardId: null,
+      lastPoopHazardId: null,
+      lastPoopOutcome: 'none',
+    });
+    expect(initialDebug.opponentBumps).toEqual({
+      active: false,
+      count: 0,
+      lastOpponentId: null,
+      lastSpeedDelta: 0,
+      lastLateralImpulse: 0,
     });
     expect(initialDebug.racePosition.participants).toHaveLength(4);
     expect(initialDebug.opponents.every((opponent) => opponent.pressureBonus === 0)).toBe(true);
@@ -509,6 +564,101 @@ test('boost pads and obstacles are active gameplay features', async ({ page }) =
   expect(featureDebug.trackFeatures.lastObstacleSpeedDelta).toBeLessThan(0);
 
   await page.keyboard.up('ArrowUp');
+  expect(consoleErrors).toEqual([]);
+});
+
+test('gross hazards trigger pee splash and poop jump or fall feedback', async ({ page }) => {
+  const consoleErrors = collectConsoleErrors(page);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
+  await expect(page.locator('#gross-overlay')).toHaveAttribute('data-effect', 'none');
+  await expect
+    .poll(() => page.evaluate(() => typeof window.__racingGameTestControls?.placeOnGrossHazard), {
+      message: 'gross-hazard placement test control is installed',
+    })
+    .toBe('function');
+
+  await page.locator('#start-button').click();
+  await expect.poll(() => readDebug(page).then((debug) => debug.phase), { timeout: 5_000 }).toBe('racing');
+
+  await page.evaluate(() => window.__racingGameTestControls?.placeOnGrossHazard('peeSprayer'));
+  await expect
+    .poll(() => readDebug(page).then((debug) => debug.grossEffects.activeEffect), {
+      message: 'pee sprayer starts a screen splash',
+    })
+    .toBe('pee');
+  await expect.poll(() => readDebug(page).then((debug) => debug.grossEffects.peeOverlayOpacity)).toBeGreaterThan(0.3);
+  await expect.poll(() => readDebug(page).then((debug) => debug.grossEffects.peeSplashes)).toBeGreaterThan(0);
+  await expect(page.locator('#gross-overlay')).toHaveAttribute('data-effect', 'pee');
+  await expect(page.locator('#gross-overlay-label')).toHaveText(/PIDDLE SPLASH/i);
+
+  await page.keyboard.down('j');
+  await page.evaluate(() => window.__racingGameTestControls?.placeOnGrossHazard('poopLog'));
+  await expect
+    .poll(() => readDebug(page).then((debug) => debug.grossEffects.jumpActive), {
+      message: 'jump input lifts the car over the stinky log',
+    })
+    .toBe(true);
+  await expect.poll(() => readDebug(page).then((debug) => debug.grossEffects.jumpHeight)).toBeGreaterThan(1);
+  await expect
+    .poll(() => readDebug(page).then((debug) => debug.grossEffects.lastPoopOutcome), {
+      message: 'jumping clears the stinky log',
+    })
+    .toBe('jumped');
+  await expect.poll(() => readDebug(page).then((debug) => debug.grossEffects.poopJumps)).toBeGreaterThan(0);
+  await expect.poll(() => readDebug(page).then((debug) => debug.grossEffects.poopFalls)).toBe(0);
+  await page.keyboard.up('j');
+
+  await page.reload();
+  await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized after reload' }).toBe(true);
+  await page.locator('#start-button').click();
+  await expect.poll(() => readDebug(page).then((debug) => debug.phase), { timeout: 5_000 }).toBe('racing');
+  await page.evaluate(() => window.__racingGameTestControls?.placeOnGrossHazard('poopLog'));
+  await expect
+    .poll(() => readDebug(page).then((debug) => debug.grossEffects.lastPoopOutcome), {
+      message: 'missing the jump falls into the stinky log',
+    })
+    .toBe('fell');
+  await expect.poll(() => readDebug(page).then((debug) => debug.grossEffects.activeEffect)).toBe('poop');
+  await expect.poll(() => readDebug(page).then((debug) => debug.grossEffects.poopOverlayOpacity)).toBeGreaterThan(0.3);
+  await expect.poll(() => readDebug(page).then((debug) => debug.grossEffects.poopFalls)).toBeGreaterThan(0);
+  await expect(page.locator('#gross-overlay')).toHaveAttribute('data-effect', 'poop');
+  await expect(page.locator('#gross-overlay-label')).toHaveText(/STINKY SPLAT/i);
+
+  expect(consoleErrors).toEqual([]);
+});
+
+test('opponent contact bumps the player car off line', async ({ page }) => {
+  const consoleErrors = collectConsoleErrors(page);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  await expect.poll(() => hasDebugState(page), { message: 'debug state is initialized' }).toBe(true);
+  await expect
+    .poll(() => page.evaluate(() => typeof window.__racingGameTestControls?.placeNearOpponent), {
+      message: 'opponent bump test control is installed',
+    })
+    .toBe('function');
+
+  await page.locator('#start-button').click();
+  await expect.poll(() => readDebug(page).then((debug) => debug.phase), { timeout: 5_000 }).toBe('racing');
+
+  const before = await readDebug(page);
+  await page.evaluate(() => window.__racingGameTestControls?.placeNearOpponent(0));
+  await expect
+    .poll(() => readDebug(page).then((debug) => debug.opponentBumps.count), {
+      message: 'close opponent contact records a bump',
+    })
+    .toBeGreaterThan(before.opponentBumps.count);
+  const after = await readDebug(page);
+
+  expect(after.opponentBumps.active).toBe(true);
+  expect(after.opponentBumps.lastOpponentId).toBe(after.opponents[0].id);
+  expect(after.opponentBumps.lastSpeedDelta).toBeLessThan(0);
+  expect(Math.abs(after.opponentBumps.lastLateralImpulse)).toBeGreaterThan(1);
+  expect(Math.hypot(after.carX - before.carX, after.carZ - before.carZ)).toBeGreaterThan(0.8);
   expect(consoleErrors).toEqual([]);
 });
 
@@ -888,6 +1038,7 @@ test('touch controls drive the race on mobile', async ({ page }) => {
       steer: 0,
       handbrake: false,
       boost: false,
+      jump: false,
     },
   });
 
@@ -1210,6 +1361,7 @@ const touchButtonSelectors = [
   '#touch-brake',
   '#touch-drift',
   '#touch-boost',
+  '#touch-jump',
 ] as const;
 
 async function holdTouchButton(page: Page, selector: string, pointerId: number): Promise<void> {

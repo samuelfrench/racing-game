@@ -1,7 +1,7 @@
 import type { ControlInput } from './input';
 import type { TouchControlsMode } from './settings';
 
-export const TOUCH_ACTIONS = ['left', 'right', 'throttle', 'brake', 'drift', 'boost'] as const;
+export const TOUCH_ACTIONS = ['left', 'right', 'throttle', 'brake', 'drift', 'boost', 'jump'] as const;
 
 export type TouchAction = (typeof TOUCH_ACTIONS)[number];
 
@@ -23,6 +23,7 @@ export function createTouchControlState(): TouchControlState {
       brake: new Set<number>(),
       drift: new Set<number>(),
       boost: new Set<number>(),
+      jump: new Set<number>(),
     },
   };
 }
@@ -63,6 +64,7 @@ export function resolveTouchInput(state: TouchControlState): ControlInput {
     steer: clamp(steer, -1, 1),
     handbrake: hasActivePointers(state, 'drift'),
     boost: hasActivePointers(state, 'boost'),
+    jump: hasActivePointers(state, 'jump'),
   };
 }
 
@@ -73,6 +75,7 @@ export function mergeControlInputs(keyboard: ControlInput, touch: ControlInput):
     steer: clamp(keyboard.steer + touch.steer, -1, 1),
     handbrake: keyboard.handbrake || touch.handbrake,
     boost: keyboard.boost || touch.boost,
+    jump: keyboard.jump || touch.jump,
   };
 }
 

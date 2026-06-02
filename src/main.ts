@@ -20,6 +20,7 @@ import {
   type TrackBoostPad,
   type TrackDefinition,
   type TrackFeatureEffects,
+  type TrackGrossHazard,
   type TrackObstacle,
   type TrackPoint,
 } from './game/track';
@@ -72,6 +73,13 @@ import {
 } from './game/race-position';
 import { createRaceAwareness, type RaceAwarenessState } from './game/race-awareness';
 import {
+  createOpponentBumpDebugState,
+  createOpponentBumpState,
+  resolveOpponentBumps,
+  type OpponentBumpDebugState,
+  type OpponentBumpState,
+} from './game/opponent-bumps';
+import {
   createTrackFeedbackState,
   updateTrackFeedback,
   type TrackFeedbackState,
@@ -114,6 +122,8 @@ type HudElements = {
   startPanel: HTMLElement;
   startButton: HTMLButtonElement;
   speedVignette: HTMLElement;
+  grossOverlay: HTMLElement;
+  grossOverlayLabel: HTMLElement;
 };
 
 type SettingsElements = {
@@ -148,6 +158,7 @@ type DebugState = {
   speed: number;
   trackFeedback: TrackFeedbackState;
   trackFeatures: TrackFeatureDebugState;
+  grossEffects: GrossEffectsDebugState;
   lap: number;
   checkpoint: string;
   carX: number;
@@ -186,6 +197,7 @@ type DebugState = {
   ghostReplay: GhostReplayDebugState;
   minimap: MinimapDebugState;
   opponents: readonly DebugOpponent[];
+  opponentBumps: OpponentBumpDebugState;
   results: readonly RaceResult[];
 };
 
@@ -258,6 +270,10 @@ type TrackArtDebug = {
   readonly finishMarkers: number;
   readonly boostPads: number;
   readonly obstacles: number;
+  readonly grossHazards: {
+    readonly peeSprayers: number;
+    readonly poopLogs: number;
+  };
   readonly startLights: StartLightDebug;
 };
 
@@ -270,11 +286,38 @@ type StartLightDebug = {
 type TrackFeatureDebugState = {
   readonly activeBoostPadId: string | null;
   readonly activeObstacleId: string | null;
+  readonly activeGrossHazardId: string | null;
   readonly lastBoostPadId: string | null;
   readonly lastObstacleId: string | null;
   readonly boostIntensity: number;
   readonly obstacleSeverity: number;
   readonly lastObstacleSpeedDelta: number;
+  readonly grossHazardKind: 'peeSprayer' | 'poopLog' | null;
+};
+
+type GrossEffectsDebugState = {
+  readonly activeEffect: 'none' | 'pee' | 'poop';
+  readonly peeOverlayOpacity: number;
+  readonly poopOverlayOpacity: number;
+  readonly jumpActive: boolean;
+  readonly jumpHeight: number;
+  readonly peeSplashes: number;
+  readonly poopFalls: number;
+  readonly poopJumps: number;
+  readonly lastPeeHazardId: string | null;
+  readonly lastPoopHazardId: string | null;
+  readonly lastPoopOutcome: 'none' | 'jumped' | 'fell';
+};
+
+type GrossEffectsState = GrossEffectsDebugState & {
+  readonly peeOverlaySeconds: number;
+  readonly poopOverlaySeconds: number;
+  readonly poopFallSeconds: number;
+  readonly jumpSeconds: number;
+  readonly jumpCooldownSeconds: number;
+  readonly grossHazardCooldownSeconds: number;
+  readonly grossHazardCooldownId: string | null;
+  readonly previousJumpPressed: boolean;
 };
 
 type TrackArtMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
@@ -298,6 +341,8 @@ declare global {
       finishRace: () => void;
       placeOnBoostPad: (index?: number) => void;
       placeOnObstacle: (index?: number) => void;
+      placeOnGrossHazard: (kind: 'peeSprayer' | 'poopLog') => void;
+      placeNearOpponent: (index?: number) => void;
     };
   }
 }
@@ -327,6 +372,8 @@ const hud = {
   startPanel: mustGet('start-panel'),
   startButton: mustGet<HTMLButtonElement>('start-button'),
   speedVignette: mustGet('speed-vignette'),
+  grossOverlay: mustGet('gross-overlay'),
+  grossOverlayLabel: mustGet('gross-overlay-label'),
 } satisfies HudElements;
 const settingsElements = {
   button: mustGet<HTMLButtonElement>('settings-button'),
@@ -352,6 +399,7 @@ const touchControls = {
     brake: mustGet<HTMLButtonElement>('touch-brake'),
     drift: mustGet<HTMLButtonElement>('touch-drift'),
     boost: mustGet<HTMLButtonElement>('touch-boost'),
+    jump: mustGet<HTMLButtonElement>('touch-jump'),
   },
 } satisfies TouchControlElements;
 
@@ -381,7 +429,9 @@ let progress = createRaceProgress(track.checkpoints, 3);
 let session: RaceSession = createRaceSession();
 let trackFeedback = createTrackFeedbackState();
 let trackFeatures: TrackFeatureDebugState = createTrackFeatureDebugState();
+let grossEffects: GrossEffectsState = createGrossEffectsState();
 let opponents: readonly OpponentState[] = createOpponentGrid(track, progress.totalLaps);
+let opponentBumps: OpponentBumpState = createOpponentBumpState();
 let running = false;
 let elapsedSeconds = 0;
 let frame = 0;
@@ -499,10 +549,12 @@ function loop(timestamp = performance.now()): void {
   }
 
   const input = readInput();
+  grossEffects = stepGrossEffects(grossEffects, input, deltaSeconds, session.phase === 'racing');
   const featureEffects = session.phase === 'racing'
     ? sampleTrackFeatureEffects(track, vehicle.position.x, vehicle.position.z)
-    : { boostPad: null, obstacle: null };
+    : { boostPad: null, obstacle: null, grossHazard: null };
   trackFeatures = updateTrackFeatureDebugState(trackFeatures, featureEffects, 0);
+  grossEffects = handleGrossHazard(grossEffects, featureEffects.grossHazard);
   const manualBoostActive = input.boost && input.throttle > 0 && vehicle.boostFuel > 0;
   const padBoostActive = trackFeatures.boostIntensity > 0 && input.throttle > 0;
   const boostActive = session.phase === 'racing' && (manualBoostActive || padBoostActive);
@@ -539,6 +591,14 @@ function loop(timestamp = performance.now()): void {
       ...trackFeatures,
       lastObstacleSpeedDelta: obstacleResult.speedDelta,
     };
+    vehicle = applyGrossFallPenalty(vehicle, grossEffects, deltaSeconds);
+    const playerDistanceBeforeBump = getPlayerRaceDistance({ progress, track, position: vehicle.position });
+    opponents = stepOpponents(opponents, track, deltaSeconds, true, elapsedSeconds, {
+      playerDistance: playerDistanceBeforeBump,
+    });
+    const bumpResult = resolveOpponentBumps(vehicle, opponents, opponentBumps, deltaSeconds);
+    vehicle = bumpResult.vehicle;
+    opponentBumps = bumpResult.state;
     const feedbackResult = updateTrackFeedback(trackFeedback, {
       track,
       vehicle,
@@ -551,8 +611,6 @@ function loop(timestamp = performance.now()): void {
     recordGhostReplayFrame(previousProgress);
     progress = updateRaceProgress(progress, track.checkpoints, vehicle.position, elapsedSeconds);
     completeGhostReplayLapIfNeeded(previousProgress);
-    const playerDistance = getPlayerRaceDistance({ progress, track, position: vehicle.position });
-    opponents = stepOpponents(opponents, track, deltaSeconds, true, elapsedSeconds, { playerDistance });
 
     if (progress.finished) {
       const playerResult: RaceResult = {
@@ -569,6 +627,7 @@ function loop(timestamp = performance.now()): void {
   }
   if (session.phase !== 'racing') {
     trackFeedback = createTrackFeedbackState();
+    opponentBumps = createOpponentBumpState();
   }
 
   updateCarMesh(car, vehicle);
@@ -578,6 +637,7 @@ function loop(timestamp = performance.now()): void {
   updateCheckpoints(progress);
   updateCamera(deltaSeconds);
   updateSpeedEffects();
+  updateGrossOverlay();
   animateTrackArt(deltaSeconds);
   updateStartLights();
   updateHud(progress, vehicle);
@@ -722,6 +782,21 @@ function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinitio
   const boostPadStripeMaterial = new THREE.MeshBasicMaterial({ color: 0xf8fbff });
   const obstacleMaterial = new THREE.MeshBasicMaterial({ color: 0xd43f2f });
   const obstacleBandMaterial = new THREE.MeshBasicMaterial({ color: 0xffe66b });
+  const peeHazardMaterial = new THREE.MeshBasicMaterial({ color: 0xffe66b });
+  const peeSprayMaterial = new THREE.MeshBasicMaterial({
+    color: 0xfff3ac,
+    opacity: 0.6,
+    transparent: true,
+    depthWrite: false,
+  });
+  const poopLogMaterial = new THREE.MeshBasicMaterial({ color: 0x6b3a1f });
+  const stinkMaterial = new THREE.MeshBasicMaterial({
+    color: 0x63f7a4,
+    opacity: 0.54,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
   const streakMaterial = new THREE.MeshBasicMaterial({
     color: 0x9af7ff,
     opacity: 0,
@@ -751,6 +826,12 @@ function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinitio
   addObstacleMarkers(group, trackDefinition.obstacles, {
     body: obstacleMaterial,
     band: obstacleBandMaterial,
+  });
+  addGrossHazardMarkers(group, trackDefinition.grossHazards, {
+    pee: peeHazardMaterial,
+    peeSpray: peeSprayMaterial,
+    poop: poopLogMaterial,
+    stink: stinkMaterial,
   });
 
   forEachSegment(trackDefinition.centerline, (start, end, index) => {
@@ -889,6 +970,10 @@ function addTracksideObjects(group: THREE.Group, trackDefinition: TrackDefinitio
       finishMarkers,
       boostPads: trackDefinition.boostPads.length,
       obstacles: trackDefinition.obstacles.length,
+      grossHazards: {
+        peeSprayers: trackDefinition.grossHazards.filter((hazard) => hazard.kind === 'peeSprayer').length,
+        poopLogs: trackDefinition.grossHazards.filter((hazard) => hazard.kind === 'poopLog').length,
+      },
       startLights: {
         activeRedLights: 0,
         greenLit: false,
@@ -981,6 +1066,56 @@ function addObstacleMarkers(
 
     marker.position.set(obstacle.x, 0, obstacle.z);
     marker.rotation.y = seededNoise(obstacle.x * 0.17 + obstacle.z * 0.11) * Math.PI;
+    group.add(marker);
+  }
+}
+
+function addGrossHazardMarkers(
+  group: THREE.Group,
+  hazards: readonly TrackGrossHazard[],
+  materials: {
+    readonly pee: THREE.MeshBasicMaterial;
+    readonly peeSpray: THREE.MeshBasicMaterial;
+    readonly poop: THREE.MeshBasicMaterial;
+    readonly stink: THREE.MeshBasicMaterial;
+  },
+): void {
+  for (const hazard of hazards) {
+    const marker = new THREE.Group();
+    marker.name = `gross-hazard-${hazard.id}`;
+    marker.position.set(hazard.x, 0, hazard.z);
+
+    if (hazard.kind === 'peeSprayer') {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1, 4.8, 18), materials.pee);
+      post.position.set(0, 2.4, 0);
+      marker.add(post);
+
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(1.15, 18, 12), materials.pee);
+      cap.position.set(0, 4.9, 0);
+      marker.add(cap);
+
+      for (let index = 0; index < 3; index += 1) {
+        const spray = new THREE.Mesh(new THREE.ConeGeometry(0.42, 8.5, 18, 1, true), materials.peeSpray.clone());
+        spray.position.set((index - 1) * 1.3, 3.1, 2.8 + index * 0.7);
+        spray.rotation.x = Math.PI * 0.48;
+        spray.rotation.z = (index - 1) * 0.18;
+        marker.add(spray);
+      }
+    } else {
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.55, 11.5, 24), materials.poop);
+      log.position.set(0, 1.05, 0);
+      log.rotation.z = Math.PI / 2;
+      marker.add(log);
+
+      for (let index = 0; index < 4; index += 1) {
+        const stink = new THREE.Mesh(new THREE.RingGeometry(0.7 + index * 0.12, 1.05 + index * 0.16, 24), materials.stink.clone());
+        stink.position.set(-4.2 + index * 2.8, 2.3 + index * 0.35, 0.2);
+        stink.rotation.x = -Math.PI / 2.6;
+        stink.rotation.z = index * 0.5;
+        marker.add(stink);
+      }
+    }
+
     group.add(marker);
   }
 }
@@ -1199,8 +1334,19 @@ function buildDriftSmokeVisual(): DriftSmokeVisual {
 }
 
 function updateCarMesh(carMesh: THREE.Group, state: VehicleState): void {
-  carMesh.position.set(state.position.x, 0.12, state.position.z);
-  carMesh.rotation.set(0, state.heading, -state.lateralVelocity * 0.016);
+  const fallT = clamp(grossEffects.poopFallSeconds / 0.78, 0, 1);
+  const fallWobble = settings.reducedMotion ? 0 : Math.sin((1 - fallT) * Math.PI * 4) * 0.22 * fallT;
+  carMesh.position.set(
+    state.position.x,
+    0.12 + grossEffects.jumpHeight - fallT * 0.25,
+    state.position.z,
+  );
+  carMesh.rotation.set(
+    0,
+    state.heading + fallWobble * 0.18,
+    -state.lateralVelocity * 0.016 + fallWobble,
+  );
+  carMesh.scale.set(1 + fallT * 0.05, 1 - fallT * 0.08, 1 + fallT * 0.04);
 }
 
 function updateDriftSmoke(deltaSeconds: number): void {
@@ -2053,6 +2199,8 @@ function setupDevTestControls(): void {
     finishRace: finishRaceForTest,
     placeOnBoostPad: placeOnBoostPadForTest,
     placeOnObstacle: placeOnObstacleForTest,
+    placeOnGrossHazard: placeOnGrossHazardForTest,
+    placeNearOpponent: placeNearOpponentForTest,
   };
 }
 
@@ -2070,6 +2218,41 @@ function placeOnObstacleForTest(index = 0): void {
     return;
   }
   placeVehicleOnFeatureForTest(obstacle, 24);
+}
+
+function placeOnGrossHazardForTest(kind: 'peeSprayer' | 'poopLog'): void {
+  const hazard = track.grossHazards.find((entry) => entry.kind === kind);
+  if (!hazard) {
+    return;
+  }
+  placeVehicleOnFeatureForTest(hazard, kind === 'poopLog' ? 28 : 22);
+}
+
+function placeNearOpponentForTest(index = 0): void {
+  const opponent = getFeatureByIndex(opponents, index);
+  if (!opponent) {
+    return;
+  }
+
+  const side = perpendicularOffset(opponent.heading, 1.1);
+  vehicle = {
+    ...vehicle,
+    position: {
+      x: opponent.position.x + side.x,
+      z: opponent.position.z + side.z,
+    },
+    heading: opponent.heading,
+    speed: Math.max(24, opponent.speed + 7),
+    lateralVelocity: 0,
+    drift: 0,
+  };
+  opponentBumps = {
+    ...opponentBumps,
+    cooldownSeconds: 0,
+    flashSeconds: 0,
+  };
+  updateCarMesh(car, vehicle);
+  window.__racingGameDebug = createDebugState();
 }
 
 function getFeatureByIndex<TFeature>(
@@ -2133,9 +2316,12 @@ function finishRaceForTest(): void {
   running = false;
   trackFeedback = createTrackFeedbackState();
   trackFeatures = createTrackFeatureDebugState();
+  grossEffects = createGrossEffectsState();
+  opponentBumps = createOpponentBumpState();
   hud.startPanel.classList.add('hidden');
   updateTouchControlsVisibility();
   updateGhostReplayMesh();
+  updateGrossOverlay();
   updateHud(progress, vehicle);
   updateRaceAwareness();
   updateResultsBoard();
@@ -2273,6 +2459,8 @@ function resetRace(): void {
   session = resetRaceSession(session);
   trackFeedback = createTrackFeedbackState();
   trackFeatures = createTrackFeatureDebugState();
+  grossEffects = createGrossEffectsState();
+  opponentBumps = createOpponentBumpState();
   opponents = createOpponentGrid(track, progress.totalLaps);
   ghostReplay = resetGhostReplayRecording(ghostReplay);
   ghostReplayStatus = createGhostReplayStatus(ghostReplay);
@@ -2305,6 +2493,7 @@ function resetRace(): void {
   audioEngine.update(writeSettingsAudioMix(writeRaceAudioMix(audioMix, audioMixInput)));
   running = false;
   hud.startPanel.classList.remove('hidden');
+  updateGrossOverlay();
   updateResultsBoard();
   updateTouchControlsVisibility();
 }
@@ -2341,12 +2530,154 @@ function createTrackFeatureDebugState(): TrackFeatureDebugState {
   return {
     activeBoostPadId: null,
     activeObstacleId: null,
+    activeGrossHazardId: null,
     lastBoostPadId: null,
     lastObstacleId: null,
     boostIntensity: 0,
     obstacleSeverity: 0,
     lastObstacleSpeedDelta: 0,
+    grossHazardKind: null,
   };
+}
+
+function createGrossEffectsState(): GrossEffectsState {
+  return {
+    activeEffect: 'none',
+    peeOverlayOpacity: 0,
+    poopOverlayOpacity: 0,
+    jumpActive: false,
+    jumpHeight: 0,
+    peeSplashes: 0,
+    poopFalls: 0,
+    poopJumps: 0,
+    lastPeeHazardId: null,
+    lastPoopHazardId: null,
+    lastPoopOutcome: 'none',
+    peeOverlaySeconds: 0,
+    poopOverlaySeconds: 0,
+    poopFallSeconds: 0,
+    jumpSeconds: 0,
+    jumpCooldownSeconds: 0,
+    grossHazardCooldownSeconds: 0,
+    grossHazardCooldownId: null,
+    previousJumpPressed: false,
+  };
+}
+
+function stepGrossEffects(
+  previous: GrossEffectsState,
+  input: ControlInput,
+  deltaSeconds: number,
+  racing: boolean,
+): GrossEffectsState {
+  const delta = clamp(deltaSeconds, 0, 0.1);
+  const jumpDurationSeconds = 0.72;
+  const nextJumpCooldownSeconds = Math.max(0, previous.jumpCooldownSeconds - delta);
+  const jumpStarts = racing && input.jump && !previous.previousJumpPressed && nextJumpCooldownSeconds === 0;
+  const jumpSeconds = jumpStarts
+    ? jumpDurationSeconds
+    : Math.max(0, previous.jumpSeconds - delta);
+  const jumpActive = jumpSeconds > 0;
+  const jumpT = jumpActive ? 1 - jumpSeconds / jumpDurationSeconds : 1;
+  const jumpHeight = jumpActive ? Math.sin(jumpT * Math.PI) * 6.4 : 0;
+  const peeOverlaySeconds = Math.max(0, previous.peeOverlaySeconds - delta);
+  const poopOverlaySeconds = Math.max(0, previous.poopOverlaySeconds - delta);
+  const poopFallSeconds = Math.max(0, previous.poopFallSeconds - delta);
+  const activeEffect = poopOverlaySeconds > 0 ? 'poop' : peeOverlaySeconds > 0 ? 'pee' : 'none';
+
+  return {
+    ...previous,
+    activeEffect,
+    peeOverlayOpacity: roundFeatureNumber(clamp(peeOverlaySeconds / 1.4, 0, 1) * 0.72),
+    poopOverlayOpacity: roundFeatureNumber(clamp(poopOverlaySeconds / 1.8, 0, 1) * 0.82),
+    jumpActive,
+    jumpHeight: roundFeatureNumber(jumpHeight),
+    peeOverlaySeconds,
+    poopOverlaySeconds,
+    poopFallSeconds,
+    jumpSeconds,
+    jumpCooldownSeconds: jumpStarts ? 0.86 : nextJumpCooldownSeconds,
+    grossHazardCooldownSeconds: Math.max(0, previous.grossHazardCooldownSeconds - delta),
+    grossHazardCooldownId: previous.grossHazardCooldownSeconds - delta > 0 ? previous.grossHazardCooldownId : null,
+    previousJumpPressed: input.jump,
+  };
+}
+
+function handleGrossHazard(previous: GrossEffectsState, hazard: TrackGrossHazard | null): GrossEffectsState {
+  if (!hazard || (previous.grossHazardCooldownSeconds > 0 && previous.grossHazardCooldownId === hazard.id)) {
+    return previous;
+  }
+
+  if (hazard.kind === 'peeSprayer') {
+    return {
+      ...previous,
+      activeEffect: 'pee',
+      peeOverlayOpacity: 0.72,
+      peeOverlaySeconds: 1.4,
+      peeSplashes: previous.peeSplashes + 1,
+      lastPeeHazardId: hazard.id,
+      grossHazardCooldownSeconds: 1,
+      grossHazardCooldownId: hazard.id,
+    };
+  }
+
+  const jumped = previous.jumpActive || previous.jumpHeight > 1.4;
+  return {
+    ...previous,
+    activeEffect: jumped ? previous.activeEffect : 'poop',
+    poopOverlayOpacity: jumped ? previous.poopOverlayOpacity : 0.82,
+    poopOverlaySeconds: jumped ? previous.poopOverlaySeconds : 1.8,
+    poopFallSeconds: jumped ? previous.poopFallSeconds : 0.78,
+    poopFalls: jumped ? previous.poopFalls : previous.poopFalls + 1,
+    poopJumps: jumped ? previous.poopJumps + 1 : previous.poopJumps,
+    lastPoopHazardId: hazard.id,
+    lastPoopOutcome: jumped ? 'jumped' : 'fell',
+    grossHazardCooldownSeconds: 1,
+    grossHazardCooldownId: hazard.id,
+  };
+}
+
+function applyGrossFallPenalty(state: VehicleState, effects: GrossEffectsState, deltaSeconds: number): VehicleState {
+  if (effects.poopFallSeconds <= 0 || Math.abs(state.speed) < 0.2) {
+    return state;
+  }
+
+  const severity = clamp(effects.poopFallSeconds / 0.78, 0, 1);
+  const speedLoss = Math.min(Math.abs(state.speed), 74 * severity * clamp(deltaSeconds, 0, 0.05));
+  return {
+    ...state,
+    speed: state.speed - Math.sign(state.speed) * speedLoss,
+    lateralVelocity: state.lateralVelocity * 0.88,
+    drift: Math.max(state.drift, 0.22 * severity),
+  };
+}
+
+function createGrossEffectsDebugState(state: GrossEffectsState): GrossEffectsDebugState {
+  return {
+    activeEffect: state.activeEffect,
+    peeOverlayOpacity: state.peeOverlayOpacity,
+    poopOverlayOpacity: state.poopOverlayOpacity,
+    jumpActive: state.jumpActive,
+    jumpHeight: state.jumpHeight,
+    peeSplashes: state.peeSplashes,
+    poopFalls: state.poopFalls,
+    poopJumps: state.poopJumps,
+    lastPeeHazardId: state.lastPeeHazardId,
+    lastPoopHazardId: state.lastPoopHazardId,
+    lastPoopOutcome: state.lastPoopOutcome,
+  };
+}
+
+function updateGrossOverlay(): void {
+  hud.grossOverlay.dataset.effect = grossEffects.activeEffect;
+  hud.grossOverlay.style.setProperty('--pee-opacity', grossEffects.peeOverlayOpacity.toFixed(3));
+  hud.grossOverlay.style.setProperty('--poop-opacity', grossEffects.poopOverlayOpacity.toFixed(3));
+  hud.grossOverlayLabel.textContent =
+    grossEffects.activeEffect === 'pee'
+      ? 'Piddle splash!'
+      : grossEffects.activeEffect === 'poop'
+        ? 'Stinky splat!'
+        : '';
 }
 
 function updateTrackFeatureDebugState(
@@ -2359,11 +2690,13 @@ function updateTrackFeatureDebugState(
   return {
     activeBoostPadId,
     activeObstacleId,
+    activeGrossHazardId: effects.grossHazard?.id ?? null,
     lastBoostPadId: activeBoostPadId ?? previous.lastBoostPadId,
     lastObstacleId: activeObstacleId ?? previous.lastObstacleId,
     boostIntensity: roundFeatureNumber(effects.boostPad?.strength ?? 0),
     obstacleSeverity: roundFeatureNumber(effects.obstacle?.severity ?? 0),
     lastObstacleSpeedDelta: roundFeatureNumber(lastObstacleSpeedDelta),
+    grossHazardKind: effects.grossHazard?.kind ?? null,
   };
 }
 
@@ -2652,6 +2985,7 @@ function createDebugState(): DebugState {
     speed: vehicle.speed,
     trackFeedback: { ...trackFeedback },
     trackFeatures: { ...trackFeatures },
+    grossEffects: createGrossEffectsDebugState(grossEffects),
     lap: progress.currentLap,
     checkpoint: next?.id ?? 'finish',
     carX: vehicle.position.x,
@@ -2719,6 +3053,7 @@ function createDebugState(): DebugState {
       passingLineOffset: opponent.passingLineOffset,
       finishedAtSeconds: opponent.finishedAtSeconds,
     })),
+    opponentBumps: createOpponentBumpDebugState(opponentBumps),
     results: session.results.map((result) => ({ ...result })),
   };
 }

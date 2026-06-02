@@ -1,6 +1,8 @@
 import type { VehicleInput } from './vehicle';
 
-export type ControlInput = Omit<VehicleInput, 'deltaSeconds' | 'trackGrip'>;
+export type ControlInput = Pick<VehicleInput, 'boost' | 'brake' | 'handbrake' | 'steer' | 'throttle'> & {
+  readonly jump: boolean;
+};
 
 export function resolveInputFromKeys(keys: ReadonlySet<string>): ControlInput {
   return {
@@ -9,6 +11,6 @@ export function resolveInputFromKeys(keys: ReadonlySet<string>): ControlInput {
     steer: (keys.has('a') || keys.has('arrowleft') ? -1 : 0) + (keys.has('d') || keys.has('arrowright') ? 1 : 0),
     handbrake: keys.has(' '),
     boost: keys.has('shift'),
+    jump: keys.has('j'),
   };
 }
-
