@@ -1074,6 +1074,22 @@ body.race-results-visible .results-panel {
   }
 }
 
+@media (max-height: 760px) {
+  body.race-results-visible #hud,
+  body.race-results-visible #control-hints,
+  body.race-results-visible #touch-controls,
+  body.race-results-visible #settings-button {
+    display: none;
+  }
+
+  body.race-results-visible .results-panel,
+  body.race-results-visible.touch-controls-visible .results-panel {
+    top: 18px;
+    bottom: 18px;
+    max-height: none;
+  }
+}
+
 @media (max-width: 720px) {
   body.race-results-visible .results-panel,
   body.race-results-visible.touch-controls-visible .results-panel {
